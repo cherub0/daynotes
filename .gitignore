@@ -1,0 +1,31 @@
+# ── Dependencies ──
+node_modules/
+
+# ── Build output ──
+dist/
+dist-ssr/
+
+# ── Rust / Tauri ──
+src-tauri/target/
+src-tauri/gen/
+
+# ── Logs ──
+logs/
+*.log
+npm-debug.log*
+
+# ── Misc ──
+*.local
+.env
+.env.local
+
+# ── Editor ──
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
