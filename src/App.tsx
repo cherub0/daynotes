@@ -36,6 +36,7 @@ export default function App() {
     loadSettings();
     loadNoteDates();
     loadNote(currentDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load note when date changes
@@ -50,6 +51,7 @@ export default function App() {
     saveTimer.current = setTimeout(() => {
       doSave();
     }, 2000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Clean up save timer on unmount
@@ -59,6 +61,7 @@ export default function App() {
         doSaveNow();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Data ──
@@ -156,6 +159,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Handlers ──

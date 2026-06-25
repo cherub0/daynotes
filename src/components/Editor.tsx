@@ -13,9 +13,32 @@ import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { common, createLowlight } from "lowlight";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const lowlight = createLowlight(common);
+
+const LANGUAGES = [
+  { label: "JavaScript", value: "javascript" },
+  { label: "TypeScript", value: "typescript" },
+  { label: "Python", value: "python" },
+  { label: "Rust", value: "rust" },
+  { label: "Java", value: "java" },
+  { label: "C", value: "c" },
+  { label: "C++", value: "cpp" },
+  { label: "C#", value: "csharp" },
+  { label: "Go", value: "go" },
+  { label: "HTML", value: "html" },
+  { label: "CSS", value: "css" },
+  { label: "JSON", value: "json" },
+  { label: "SQL", value: "sql" },
+  { label: "Bash", value: "bash" },
+  { label: "YAML", value: "yaml" },
+  { label: "Markdown", value: "markdown" },
+  { label: "纯文本", value: "plaintext" },
+];
+
+// 10MB limit for inline images to prevent base64 bloat in SQLite
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface EditorProps {
   content: string;
@@ -66,6 +89,59 @@ export function Editor({ content, onChange }: EditorProps) {
       attributes: {
         class: "prose-editor",
       },
+      handlePaste: (view, event) => {
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              if (file.size > MAX_IMAGE_BYTES) continue;
+              event.preventDefault();
+              const pos = view.state.selection.from;
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const src = e.target?.result as string;
+                const node = view.state.schema.nodes.image.create({ src });
+                view.dispatch(view.state.tr.insert(pos, node));
+              };
+              reader.readAsDataURL(file);
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+      handleDrop: (view, event) => {
+        const files = event.dataTransfer?.files;
+        if (!files || files.length === 0) return false;
+        const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+        if (imageFiles.length === 0) return false;
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        if (!coords) return false;
+        event.preventDefault();
+        // Process images sequentially to maintain order and correct positions
+        let pos = coords.pos;
+        function processNext(index: number) {
+          if (index >= imageFiles.length) return;
+          const file = imageFiles[index];
+          if (file.size > MAX_IMAGE_BYTES) {
+            processNext(index + 1);
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const src = e.target?.result as string;
+            const node = view.state.schema.nodes.image.create({ src });
+            view.dispatch(view.state.tr.insert(pos, node));
+            pos += node.nodeSize;
+            processNext(index + 1);
+          };
+          reader.readAsDataURL(file);
+        }
+        processNext(0);
+        return true;
+      },
     },
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
@@ -79,22 +155,135 @@ export function Editor({ content, onChange }: EditorProps) {
     }
   }, [content, editor]);
 
+  // ── All hooks must be called before any conditional return ──
+
+  const [showLangPicker, setShowLangPicker] = useState(false);
+  const langPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close language picker on outside click
+  useEffect(() => {
+    if (!showLangPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      if (langPickerRef.current && !langPickerRef.current.contains(e.target as Node)) {
+        setShowLangPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showLangPicker]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [showImagePicker, setShowImagePicker] = useState(false);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const imagePickerRef = useRef<HTMLDivElement>(null);
+  const linkPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close popups on outside click
+  useEffect(() => {
+    if (!showImagePicker && !showLinkPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      if (imagePickerRef.current?.contains(e.target as Node)) return;
+      if (linkPickerRef.current?.contains(e.target as Node)) return;
+      setShowImagePicker(false);
+      setShowLinkPicker(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showImagePicker, showLinkPicker]);
+
   if (!editor) {
     return <div className="editor-loading">加载编辑器中…</div>;
   }
 
+  // ── Helper functions (safe: editor is guaranteed non-null here) ──
+
+  const setCodeBlockLang = (lang: string) => {
+    if (editor.isActive("codeBlock")) {
+      editor.chain().focus().updateAttributes("codeBlock", { language: lang }).run();
+    } else {
+      editor.chain().focus().setCodeBlock({ language: lang }).run();
+    }
+    setShowLangPicker(false);
+  };
+
+  const addImage = () => {
+    setShowImagePicker(!showImagePicker);
+  };
+
+  const pickLocalImage = () => {
+    setShowImagePicker(false);
+    fileInputRef.current?.click();
+  };
+
+  const insertImageUrl = () => {
+    setShowImagePicker(false);
+    const url = window.prompt("请输入图片链接地址 (https://…):");
+    if (url) {
+      editor.chain().focus().setImage({ src: url }).run();
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      window.alert(`图片文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），请选择小于 10MB 的图片`);
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const src = ev.target?.result as string;
+      editor.chain().focus().setImage({ src }).run();
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const addLink = () => {
+    setShowLinkPicker(!showLinkPicker);
+  };
+
+  const insertWebLink = () => {
+    setShowLinkPicker(false);
     const url = window.prompt("请输入链接地址 (https://…):");
     if (url) {
       editor.chain().focus().setLink({ href: url }).run();
     }
   };
 
-  const addImage = () => {
-    const url = window.prompt("请输入图片地址:");
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
+  const insertFileLink = async () => {
+    setShowLinkPicker(false);
+    try {
+      // Use Tauri dialog plugin for full file path
+      const { invoke } = await import("@tauri-apps/api/core");
+      const selected = await invoke("plugin:dialog|open", {
+        title: "选择文件",
+        multiple: false,
+      });
+      if (selected && typeof selected === "string") {
+        const name = selected.split(/[\\/]/).pop() || selected;
+        editor
+          .chain()
+          .focus()
+          .insertContent(name)
+          .setLink({ href: `file:///${selected.replace(/\\/g, "/")}` })
+          .run();
+        return;
+      }
+    } catch {
+      // Fallback: use hidden file input (no full path in webview)
     }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) {
+        editor.chain().focus().setLink({ href: `file:///${file.name}` }).run();
+      }
+    };
+    input.click();
   };
 
   const addTable = () => {
@@ -199,28 +388,67 @@ export function Editor({ content, onChange }: EditorProps) {
           >
             ❝
           </button>
-          <button
-            className={`toolbar-btn ${editor.isActive("codeBlock") ? "active" : ""}`}
-            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-            title="代码块"
-          >
-            &lt;/&gt;
-          </button>
+          <div className="toolbar-lang-group" ref={langPickerRef}>
+            <button
+              className={`toolbar-btn ${editor.isActive("codeBlock") ? "active" : ""}`}
+              onClick={() => setShowLangPicker(!showLangPicker)}
+              title="代码块"
+            >
+              &lt;/&gt;
+            </button>
+            {showLangPicker && (
+              <div className="lang-picker-dropdown">
+                {LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.value}
+                    className="lang-option"
+                    onClick={() => setCodeBlockLang(lang.value)}
+                  >
+                    {lang.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="toolbar-divider" />
 
         <div className="toolbar-group">
-          <button
-            className={`toolbar-btn ${editor.isActive("link") ? "active" : ""}`}
-            onClick={addLink}
-            title="插入链接"
-          >
-            🔗
-          </button>
-          <button className="toolbar-btn" onClick={addImage} title="插入图片">
-            🖼
-          </button>
+          <div className="toolbar-lang-group" ref={linkPickerRef}>
+            <button
+              className={`toolbar-btn ${editor.isActive("link") ? "active" : ""}`}
+              onClick={addLink}
+              title="插入链接"
+            >
+              🔗
+            </button>
+            {showLinkPicker && (
+              <div className="lang-picker-dropdown">
+                <button className="lang-option" onClick={insertWebLink}>
+                  🌐 网页链接…
+                </button>
+                <button className="lang-option" onClick={insertFileLink}>
+                  📁 本地文件…
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="toolbar-lang-group" ref={imagePickerRef}>
+            <button className="toolbar-btn" onClick={addImage} title="插入图片">
+              🖼
+            </button>
+            {showImagePicker && (
+              <div className="lang-picker-dropdown">
+                <button className="lang-option" onClick={pickLocalImage}>
+                  📁 本地文件…
+                </button>
+                <button className="lang-option" onClick={insertImageUrl}>
+                  🔗 图片链接…
+                </button>
+              </div>
+            )}
+          </div>
           <button className="toolbar-btn" onClick={addTable} title="插入表格">
             ⊞
           </button>
@@ -250,6 +478,13 @@ export function Editor({ content, onChange }: EditorProps) {
 
       <div className="editor-content">
         <EditorContent editor={editor} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={handleFileUpload}
+        />
       </div>
 
       <style>{`
@@ -306,6 +541,39 @@ export function Editor({ content, onChange }: EditorProps) {
           cursor: default;
         }
 
+        .toolbar-lang-group {
+          position: relative;
+        }
+
+        .lang-picker-dropdown {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          z-index: 50;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius);
+          box-shadow: var(--shadow-lg);
+          padding: 4px;
+          min-width: 140px;
+          max-height: 280px;
+          overflow-y: auto;
+          margin-top: 2px;
+        }
+
+        .lang-option {
+          display: block;
+          width: 100%;
+          padding: 6px 12px;
+          font-size: 12px;
+          text-align: left;
+          border-radius: var(--radius-sm);
+          color: var(--text-primary);
+        }
+        .lang-option:hover {
+          background: var(--bg-secondary);
+        }
+
         .editor-content {
           flex: 1;
           overflow-y: auto;
@@ -352,8 +620,8 @@ export function Editor({ content, onChange }: EditorProps) {
         }
 
         .editor-content .ProseMirror pre {
-          background: #1e1e1e;
-          color: #d4d4d4;
+          background: var(--bg-tertiary);
+          color: var(--text-primary);
           border-radius: 6px;
           padding: 12px 16px;
           margin: 0.5em 0;
@@ -412,14 +680,15 @@ export function Editor({ content, onChange }: EditorProps) {
         }
 
         .editor-content .ProseMirror mark {
-          background: #fff3cd;
+          --highlight-bg: #fff3cd;
+          background: var(--highlight-bg);
           color: inherit;
           padding: 0 2px;
           border-radius: 2px;
         }
 
         [data-theme="dark"] .editor-content .ProseMirror mark {
-          background: #5c4a00;
+          --highlight-bg: #5c4a00;
         }
 
         .editor-content .ProseMirror ul[data-type="taskList"] {
