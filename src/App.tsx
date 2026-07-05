@@ -24,11 +24,13 @@ export default function App() {
   const contentRef = useRef(content);
   const todosRef = useRef(todos);
   const dateRef = useRef(currentDate);
+  const dirtyRef = useRef(dirty);
 
   // Keep refs in sync
   contentRef.current = content;
   todosRef.current = todos;
   dateRef.current = currentDate;
+  dirtyRef.current = dirty;
 
   // ── Init ──
 
@@ -42,7 +44,6 @@ export default function App() {
   // Load note when date changes
   useEffect(() => {
     loadNote(currentDate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDate]);
 
   // Auto-save: 2s after last change
@@ -86,35 +87,44 @@ export default function App() {
   }
 
   async function loadNote(date: string) {
-    // Save current first if dirty
-    if (dirty) {
-      await doSaveNow();
-    }
     try {
       const n = await api.getNote(date);
       setNote(n);
       setContent(n?.content || "");
       setTodos(parseTodos(n?.todos || "[]"));
+      dirtyRef.current = false;
       setDirty(false);
     } catch (e) {
       console.error("Failed to load note:", e);
       setNote(null);
       setContent("");
       setTodos([]);
+      dirtyRef.current = false;
       setDirty(false);
     }
   }
 
   async function doSave() {
-    if (!dirty) return;
+    if (!dirtyRef.current) return;
     await doSaveNow();
   }
 
-  async function doSaveNow() {
+  async function doSaveNow(
+    dateSnapshot = dateRef.current,
+    contentSnapshot = contentRef.current,
+    todosSnapshot = todosRef.current,
+  ) {
+    const todosJson = JSON.stringify(todosSnapshot);
     try {
-      const todosJson = JSON.stringify(todosRef.current);
-      await api.saveNote(dateRef.current, contentRef.current, todosJson);
-      setDirty(false);
+      await api.saveNote(dateSnapshot, contentSnapshot, todosJson);
+      if (
+        dateRef.current === dateSnapshot &&
+        contentRef.current === contentSnapshot &&
+        JSON.stringify(todosRef.current) === todosJson
+      ) {
+        dirtyRef.current = false;
+        setDirty(false);
+      }
       // Refresh note dates
       const dates = await api.getNotesDates();
       setNoteDates(new Set(dates));
@@ -126,20 +136,36 @@ export default function App() {
 
   // ── Navigation ──
 
+  async function changeDate(nextDate: string) {
+    const previousDate = dateRef.current;
+    if (nextDate === previousDate) return;
+
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = undefined;
+    }
+
+    if (dirtyRef.current) {
+      await doSaveNow(previousDate, contentRef.current, todosRef.current);
+    }
+
+    setCurrentDate(nextDate);
+  }
+
   function goToPrevDay() {
-    setCurrentDate((d) => getPrevDate(d));
+    void changeDate(getPrevDate(dateRef.current));
   }
 
   function goToNextDay() {
-    setCurrentDate((d) => getNextDate(d));
+    void changeDate(getNextDate(dateRef.current));
   }
 
   function goToToday() {
-    setCurrentDate(getToday());
+    void changeDate(getToday());
   }
 
   function goToDate(date: string) {
-    setCurrentDate(date);
+    void changeDate(date);
   }
 
   // ── Keyboard shortcuts ──
@@ -166,12 +192,14 @@ export default function App() {
 
   function handleContentChange(html: string) {
     setContent(html);
+    dirtyRef.current = true;
     setDirty(true);
     scheduleSave();
   }
 
   function handleTodosChange(newTodos: TodoItem[]) {
     setTodos(newTodos);
+    dirtyRef.current = true;
     setDirty(true);
     scheduleSave();
   }

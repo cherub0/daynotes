@@ -13,23 +13,79 @@ interface ShareModalProps {
 export function ShareModal({ currentDate, content, todos, onClose, onToast }: ShareModalProps) {
   const [exporting, setExporting] = useState(false);
 
+  type ExportImage = { src: string; alt: string };
+
+  function getDataImageExtension(dataUrl: string): string {
+    const mime = dataUrl.match(/^data:([^;,]+)[;,]/)?.[1]?.toLowerCase();
+    switch (mime) {
+      case "image/jpeg":
+      case "image/jpg":
+        return "jpg";
+      case "image/gif":
+        return "gif";
+      case "image/webp":
+        return "webp";
+      case "image/svg+xml":
+        return "svg";
+      case "image/png":
+      default:
+        return "png";
+    }
+  }
+
   function stripHtml(html: string): string {
     const div = document.createElement("div");
     div.innerHTML = html;
     return div.textContent || "";
   }
 
-  function htmlToMarkdown(html: string): { md: string; images: string[] } {
-    const images: string[] = [];
+  function htmlToMarkdown(html: string): { md: string; images: ExportImage[] } {
+    const images: ExportImage[] = [];
     const doc = new DOMParser().parseFromString(html, "text/html");
+
+    function compactText(text: string): string {
+      return text.replace(/\s+/g, " ").trim();
+    }
+
+    function escapeTableCell(text: string): string {
+      return compactText(text)
+        .replace(/\\/g, "\\\\")
+        .replace(/\|/g, "\\|");
+    }
+
+    function renderTable(table: Element): string {
+      const rows = Array.from(table.querySelectorAll("tr"))
+        .map((row) =>
+          Array.from(row.querySelectorAll("th,td"))
+            .map((cell) => escapeTableCell(cell.textContent || ""))
+        )
+        .filter((cells) => cells.length > 0);
+
+      if (rows.length === 0) return "";
+
+      const columnCount = Math.max(...rows.map((cells) => cells.length));
+      const normalizedRows = rows.map((cells) => [
+        ...cells,
+        ...Array(Math.max(0, columnCount - cells.length)).fill(""),
+      ]);
+
+      let tableMd = "\n";
+      normalizedRows.forEach((cells, index) => {
+        tableMd += `| ${cells.join(" | ")} |\n`;
+        if (index === 0) {
+          tableMd += `| ${cells.map(() => "---").join(" | ")} |\n`;
+        }
+      });
+      return `${tableMd}\n`;
+    }
 
     function walk(node: Node): string {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
       if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
       const el = node as Element;
-      const children = Array.from(el.childNodes).map(walk).join("");
       const tag = el.tagName.toLowerCase();
+      const children = tag === "table" ? "" : Array.from(el.childNodes).map(walk).join("");
 
       switch (tag) {
         case "h1": return `# ${children}\n\n`;
@@ -43,8 +99,8 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         }
         case "strong": case "b": return `**${children}**`;
         case "em": case "i": return `*${children}*`;
-        case "s": case "del": case "strike": return `~~${children}~~`;
-        case "mark": return `==${children}==`;
+        case "s": case "del": case "strike": return `<del>${children}</del>`;
+        case "mark": return `<mark>${children}</mark>`;
         case "u": case "ins": return `<u>${children}</u>`;
         case "code": {
           // Only treat as inline if parent is not <pre>
@@ -68,7 +124,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           const src = el.getAttribute("src") || "";
           const alt = el.getAttribute("alt") || "";
           if (src.startsWith("data:")) {
-            images.push(src);
+            images.push({ src, alt });
             return `%%IMG_${images.length - 1}%%`;
           }
           return alt ? `![${alt}](${src})` : `![](${src})`;
@@ -77,8 +133,15 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         case "li": {
           const parent = el.parentElement?.tagName.toLowerCase();
           const checked = el.getAttribute("data-checked");
-          if (checked === "true") return `- [x] ${children}\n`;
-          if (checked === "false") return `- [ ] ${children}\n`;
+          if (checked === "true" || checked === "false") {
+            const taskBody = el.querySelector(":scope > div");
+            const taskText = compactText(
+              taskBody
+                ? Array.from(taskBody.childNodes).map(walk).join("")
+                : children
+            );
+            return `- [${checked === "true" ? "x" : " "}] ${taskText}\n`;
+          }
           if (parent === "ol") return `%%OL_ITEM%%${children}`;
           return `- ${children}\n`;
         }
@@ -89,32 +152,16 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         case "ul": return `\n${children}\n`;
         case "br": return "\n";
         case "hr": return "\n---\n";
-        case "table": case "thead": case "tbody": return children;
+        case "table": return renderTable(el);
+        case "thead": case "tbody": return children;
         case "tr": return children + "\n";
-        case "th": case "td": {
-          const stripped = children.replace(/<[^>]+>/g, "");
-          return `%%CELL%%${stripped}`;
-        }
+        case "th": case "td": return compactText(children);
         case "div": case "span": case "section": return children;
         default: return children;
       }
     }
 
     let md = walk(doc.body);
-
-    // Post-process: convert table cells to markdown table format
-    const tableRe = /(?:^|\n)((?:(?:.*?%%CELL%%.*?\|?)+))\n/gm;
-    md = md.replace(tableRe, (block) => {
-      const rows = block.split("\n").filter(r => r.includes("%%CELL%%"));
-      if (rows.length === 0) return block;
-      let out = "";
-      rows.forEach((row, ri) => {
-        const cells = row.split("%%CELL%%").filter(Boolean).map(c => c.trim());
-        out += "| " + cells.join(" | ") + " |\n";
-        if (ri === 0) out += "| " + cells.map(() => "---").join(" | ") + " |\n";
-      });
-      return out;
-    });
 
     // Clean up whitespace
     md = md.replace(/\n{3,}/g, "\n\n").trim();
@@ -136,28 +183,32 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
       if (images.length > 0) {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
+          const imageFiles = images.map((image, index) =>
+            `image_${index + 1}.${getDataImageExtension(image.src)}`
+          );
           const dir = await invoke("plugin:dialog|open", {
             title: "选择导出目录",
             directory: true,
             multiple: false,
           });
           if (dir && typeof dir === "string") {
-            // Decode and write each image as .png
+            // Decode and write each image using its original data URL MIME type.
             for (let i = 0; i < images.length; i++) {
-              const base64 = images[i].split(",")[1];
+              const base64 = images[i].src.split(",")[1];
               const binaryStr = atob(base64);
               const bytes = new Uint8Array(binaryStr.length);
               for (let j = 0; j < binaryStr.length; j++) {
                 bytes[j] = binaryStr.charCodeAt(j);
               }
               await invoke("write_binary_file", {
-                path: `${dir}\\image_${i + 1}.png`,
+                path: `${dir}\\${imageFiles[i]}`,
                 contents: Array.from(bytes),
               });
             }
             // Replace placeholders with filenames
             for (let i = 0; i < images.length; i++) {
-              md = md.replace(`%%IMG_${i}%%`, `![](image_${i + 1}.png)`);
+              const alt = images[i].alt || `image_${i + 1}`;
+              md = md.replace(`%%IMG_${i}%%`, `![${alt}](${imageFiles[i]})`);
             }
             // Write markdown file
             await invoke("write_text_file", {
@@ -361,7 +412,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
 
   function parseInlineMarkdown(text: string): { text: string; bold: boolean; italic: boolean; code: boolean; highlight: boolean; strikethrough: boolean; underline: boolean }[] {
     const segs: { text: string; bold: boolean; italic: boolean; code: boolean; highlight: boolean; strikethrough: boolean; underline: boolean }[] = [];
-    const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(~~[^~]+~~)|(==[^=]+==)|(<u>[^<]+<\/u>)|(<mark>[^<]+<\/mark>)/g;
+    const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(~~[^~]+~~)|(==[^=]+==)|(<u>[^<]+<\/u>)|(<del>[^<]+<\/del>)|(<mark>[^<]+<\/mark>)/g;
     const noStyle = { bold: false, italic: false, code: false, highlight: false, strikethrough: false, underline: false };
     let last = 0;
     let m;
@@ -374,6 +425,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
       else if (raw.startsWith("~~")) segs.push({ text: raw.slice(2, -2), ...noStyle, strikethrough: true });
       else if (raw.startsWith("==")) segs.push({ text: raw.slice(2, -2), ...noStyle, highlight: true });
       else if (raw.startsWith("<u>")) segs.push({ text: raw.slice(3, -4), ...noStyle, underline: true });
+      else if (raw.startsWith("<del>")) segs.push({ text: raw.slice(5, -6), ...noStyle, strikethrough: true });
       else if (raw.startsWith("<mark>")) segs.push({ text: raw.slice(6, -7), ...noStyle, highlight: true });
       last = m.index + m[0].length;
     }
@@ -588,4 +640,3 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     </div>
   );
 }
-

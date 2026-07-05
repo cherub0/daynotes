@@ -27,6 +27,7 @@ pub struct TodoItem {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct EmailSettings {
     pub smtp_host: String,
     pub smtp_port: u16,
@@ -38,7 +39,23 @@ pub struct EmailSettings {
     pub enabled: bool,
 }
 
+impl Default for EmailSettings {
+    fn default() -> Self {
+        Self {
+            smtp_host: "smtp.qq.com".to_string(),
+            smtp_port: 465,
+            username: "".to_string(),
+            password: "".to_string(),
+            recipient: "".to_string(),
+            send_time: "08:00".to_string(),
+            weekdays_only: true,
+            enabled: false,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct AppSettings {
     pub email: EmailSettings,
     pub theme: String,          // "light" | "dark" | "system"
@@ -48,16 +65,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            email: EmailSettings {
-                smtp_host: "smtp.qq.com".to_string(),
-                smtp_port: 465,
-                username: "".to_string(),
-                password: "".to_string(),
-                recipient: "".to_string(),
-                send_time: "08:00".to_string(),
-                weekdays_only: true,
-                enabled: false,
-            },
+            email: EmailSettings::default(),
             theme: "system".to_string(),
             font_size: 14,
         }
@@ -99,6 +107,10 @@ fn init_db(conn: &Connection) {
     .expect("Failed to initialize database");
 }
 
+fn parse_app_settings(value: &str) -> AppSettings {
+    serde_json::from_str::<AppSettings>(value).unwrap_or_default()
+}
+
 // ── Email Helper ─────────────────────────────────────────────────
 
 fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
@@ -110,7 +122,7 @@ fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
         let value: String = stmt
             .query_row([], |row| row.get(0))
             .unwrap_or_else(|_| "{}".to_string());
-        serde_json::from_str::<AppSettings>(&value).map_err(|e| e.to_string())?
+        parse_app_settings(&value)
     };
 
     let email = &settings.email;
@@ -249,7 +261,7 @@ fn get_settings(state: tauri::State<DbState>) -> Result<AppSettings, String> {
     let value: String = stmt
         .query_row([], |row| row.get(0))
         .unwrap_or_else(|_| "{}".to_string());
-    serde_json::from_str::<AppSettings>(&value).map_err(|e| e.to_string())
+    Ok(parse_app_settings(&value))
 }
 
 #[tauri::command]
@@ -357,10 +369,7 @@ fn scheduler_tick(app_handle: &tauri::AppHandle) {
             Ok(v) => v,
             Err(_) => return,
         };
-        let settings: AppSettings = match serde_json::from_str(&value) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+        let settings = parse_app_settings(&value);
 
         let email = &settings.email;
         if !email.enabled {
@@ -550,4 +559,41 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_app_settings_uses_defaults_for_empty_json() {
+        let settings = parse_app_settings("{}");
+
+        assert_eq!(settings.theme, "system");
+        assert_eq!(settings.font_size, 14);
+        assert_eq!(settings.email.smtp_host, "smtp.qq.com");
+        assert_eq!(settings.email.smtp_port, 465);
+        assert_eq!(settings.email.send_time, "08:00");
+        assert!(settings.email.weekdays_only);
+        assert!(!settings.email.enabled);
+    }
+
+    #[test]
+    fn parse_app_settings_preserves_partial_saved_values() {
+        let settings = parse_app_settings(r#"{"theme":"dark","email":{"enabled":true}}"#);
+
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.font_size, 14);
+        assert_eq!(settings.email.smtp_host, "smtp.qq.com");
+        assert!(settings.email.enabled);
+    }
+
+    #[test]
+    fn parse_app_settings_uses_defaults_for_invalid_json() {
+        let settings = parse_app_settings("{not json");
+
+        assert_eq!(settings.theme, "system");
+        assert_eq!(settings.font_size, 14);
+        assert!(!settings.email.enabled);
+    }
 }

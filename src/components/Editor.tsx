@@ -50,6 +50,8 @@ export function Editor({ content, onChange }: EditorProps) {
     extensions: [
       StarterKit.configure({
         codeBlock: false, // use lowlight version for syntax highlighting
+        link: false,
+        underline: false,
         heading: {
           levels: [1, 2, 3, 4],
         },
@@ -73,6 +75,7 @@ export function Editor({ content, onChange }: EditorProps) {
       }),
       Image.configure({
         inline: true,
+        allowBase64: true,
       }),
       Table.configure({
         resizable: true,
