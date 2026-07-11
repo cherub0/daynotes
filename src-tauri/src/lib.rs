@@ -324,18 +324,42 @@ fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| e.to_string())
 }
 
+fn find_edge() -> Result<std::path::PathBuf, String> {
+    let candidates = [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Ok(std::path::PathBuf::from(path));
+        }
+    }
+    // Fallback: search PATH
+    if let Ok(paths) = std::env::var("PATH") {
+        for dir in paths.split(';') {
+            let p = std::path::Path::new(dir).join("msedge.exe");
+            if p.exists() { return Ok(p); }
+        }
+    }
+    Err("未找到 Microsoft Edge 浏览器".to_string())
+}
+
 #[tauri::command]
 fn html_to_pdf(html: String, path: String) -> Result<String, String> {
-    let temp_dir = std::env::temp_dir();
-    let temp_html = temp_dir.join("daynotes_print.html");
+    let edge = find_edge()?;
+
+    // Write temp HTML next to output PDF to avoid path encoding issues
+    let out = std::path::Path::new(&path);
+    let parent = out.parent().unwrap_or(std::path::Path::new("."));
+    let temp_html = parent.join(".daynotes_print_temp.html");
     std::fs::write(&temp_html, &html).map_err(|e| format!("写入临时文件失败：{e}"))?;
 
-    let result = std::process::Command::new("msedge")
-        .args(["--headless", "--disable-gpu", "--no-sandbox"])
+    let result = std::process::Command::new(&edge)
+        .args(["--headless", "--disable-gpu"])
         .arg(format!("--print-to-pdf={}", path))
         .arg(&temp_html)
         .output()
-        .map_err(|e| format!("无法启动 Edge 浏览器：{e}"))?;
+        .map_err(|e| format!("无法启动 Edge：{e}"))?;
 
     let _ = std::fs::remove_file(&temp_html);
 
@@ -343,7 +367,8 @@ fn html_to_pdf(html: String, path: String) -> Result<String, String> {
         Ok(path)
     } else {
         let stderr = String::from_utf8_lossy(&result.stderr);
-        Err(format!("PDF 生成失败：{}", stderr))
+        let stdout = String::from_utf8_lossy(&result.stdout);
+        Err(format!("PDF 生成失败（exit {}）：{stderr}{stdout}", result.status.code().unwrap_or(-1)))
     }
 }
 
