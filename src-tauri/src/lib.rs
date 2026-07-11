@@ -1,6 +1,7 @@
 mod export_zip;
 mod export_pdf;
 mod window_lifecycle;
+mod email;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
