@@ -104,15 +104,14 @@ enum LayoutItem {
 fn inline_text(content: &[PdfInline]) -> String {
     content.iter().map(|run| {
         let mut value = run.text.clone();
-        if run.strike { value = format!("\u{0336}{}", value.chars().map(|c| format!("{c}\u{0336}")).collect::<String>()); }
-        if run.code { value = format!("`{value}`"); }
-        if run.bold { value = format!("**{value}**"); }
-        if run.italic { value = format!("*{value}*"); }
-        if run.underline { value = format!("_{value}_"); }
-        if run.highlight { value = format!("=={value}=="); }
-        if let Some(ref href) = run.href {
-            if value == *href { value = href.clone(); }
-            else { value = format!("{value} ({href})"); }
+        if run.strike {
+            // Use combining long stroke overlay for strikethrough effect
+            value = value.chars().map(|c| format!("{c}\u{0336}")).collect::<String>();
+        }
+        if run.href.as_ref().map_or(false, |href| value != *href) {
+            if let Some(ref href) = run.href {
+                value = format!("{value} ({href})");
+            }
         }
         value
     }).collect()

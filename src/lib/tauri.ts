@@ -88,7 +88,3 @@ export async function readBinaryFile(path: string): Promise<number[]> {
 export async function writeBinaryFile(path: string, contents: number[]): Promise<void> {
   return invoke("write_binary_file", { path, contents });
 }
-
-export async function htmlToPdf(html: string, path: string): Promise<string> {
-  return invoke("html_to_pdf", { html, path });
-}
