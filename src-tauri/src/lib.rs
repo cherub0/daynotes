@@ -324,6 +324,29 @@ fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn html_to_pdf(html: String, path: String) -> Result<String, String> {
+    let temp_dir = std::env::temp_dir();
+    let temp_html = temp_dir.join("daynotes_print.html");
+    std::fs::write(&temp_html, &html).map_err(|e| format!("写入临时文件失败：{e}"))?;
+
+    let result = std::process::Command::new("msedge")
+        .args(["--headless", "--disable-gpu", "--no-sandbox"])
+        .arg(format!("--print-to-pdf={}", path))
+        .arg(&temp_html)
+        .output()
+        .map_err(|e| format!("无法启动 Edge 浏览器：{e}"))?;
+
+    let _ = std::fs::remove_file(&temp_html);
+
+    if result.status.success() {
+        Ok(path)
+    } else {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        Err(format!("PDF 生成失败：{}", stderr))
+    }
+}
+
 pub(crate) fn send_email_smtp(settings: &EmailSettings, subject: &str, body: &str) -> Result<(), String> {
     use lettre::message::header::ContentType;
     use lettre::transport::smtp::authentication::Credentials;
@@ -577,6 +600,7 @@ pub fn run() {
             write_text_file,
             write_binary_file,
             read_binary_file,
+            html_to_pdf,
             export_zip::export_markdown_zip,
             export_pdf::export_pdf,
             email::test_email_settings,

@@ -84,3 +84,11 @@ export async function testEmailSettings(): Promise<string> {
 export async function readBinaryFile(path: string): Promise<number[]> {
   return invoke("read_binary_file", { path });
 }
+
+export async function writeBinaryFile(path: string, contents: number[]): Promise<void> {
+  return invoke("write_binary_file", { path, contents });
+}
+
+export async function htmlToPdf(html: string, path: string): Promise<string> {
+  return invoke("html_to_pdf", { html, path });
+}

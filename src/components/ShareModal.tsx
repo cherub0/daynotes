@@ -4,7 +4,7 @@ import { formatDateDisplay } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { save } from "@tauri-apps/plugin-dialog";
 import { parseExportDocument, renderMarkdown, renderPrintHtml, type ExportImage } from "../lib/exportDocument";
-import { exportMarkdownZip, readBinaryFile, type ExportImagePayload } from "../lib/tauri";
+import { exportMarkdownZip, readBinaryFile, writeBinaryFile, htmlToPdf, type ExportImagePayload } from "../lib/tauri";
 import { ExportPreview } from "./ExportPreview";
 
 async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
@@ -119,10 +119,15 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   async function exportPDF() {
     setExporting(true);
     try {
-      const document = parseExportDocument(currentDate, content, todos);
+      const path = await save({
+        title: "导出 PDF",
+        defaultPath: `DayNotes-${currentDate}.pdf`,
+        filters: [{ name: "PDF 文档", extensions: ["pdf"] }],
+      });
+      if (!path) { setExporting(false); return; }
 
-      // Convert local images to data URLs so they render in the browser
-      const localFailures: string[] = [];
+      const document = parseExportDocument(currentDate, content, todos);
+      // Convert local images to data URLs for rendering
       for (const image of document.images) {
         if (image.kind !== "local") continue;
         try {
@@ -131,19 +136,12 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           const base64 = btoa(String.fromCharCode(...bytes));
           image.source = `data:${mime};base64,${base64}`;
           image.kind = "data";
-        } catch {
-          localFailures.push(image.alt || image.filename);
-        }
+        } catch { /* keep placeholder */ }
       }
 
       const html = renderPrintHtml(document);
-      const blob = new Blob([html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      const warning = localFailures.length
-        ? `（${localFailures.length} 张本地图片无法读取）`
-        : "";
-      onToast(`已在新窗口打开，使用 Ctrl+P → 另存为 PDF${warning}`);
+      await htmlToPdf(html, path);
+      onToast(`已导出 PDF：${path}`);
     } catch (error) {
       onToast(`PDF 导出失败：${String(error)}`);
     } finally {
@@ -187,6 +185,13 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   async function exportImage() {
     setExporting(true);
     try {
+      const path = await save({
+        title: "导出图片",
+        defaultPath: `DayNotes-${currentDate}.png`,
+        filters: [{ name: "PNG 图片", extensions: ["png"] }],
+      });
+      if (!path) { setExporting(false); return; }
+
       if (!previewRef.current) throw new Error("预览元素未就绪");
       await document.fonts.ready;
       const blob = await toBlob(previewRef.current, {
@@ -195,23 +200,15 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         cacheBust: true,
       });
       if (!blob) throw new Error("无法生成图片数据");
-      downloadBlob(blob, `DayNotes-${currentDate}.png`);
-      onToast("已按分享预览导出长图");
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await writeBinaryFile(path, Array.from(bytes));
+      onToast(`已导出图片：${path}`);
     } catch (error) {
       onToast(`图片导出失败：${String(error)}`);
     } finally {
       setExporting(false);
       onClose();
     }
-  }
-
-  function downloadBlob(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   return (
@@ -244,7 +241,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           <div className="share-option-icon">🖨</div>
           <div className="share-option-text">
             <strong>导出为 PDF</strong>
-            <span>在新窗口预览，Ctrl+P 保存</span>
+            <span>直接保存为 .pdf 文件</span>
           </div>
         </button>
 
@@ -252,7 +249,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           <div className="share-option-icon">🖼</div>
           <div className="share-option-text">
             <strong>导出为图片</strong>
-            <span>生成精美卡片，适合分享到微信/QQ</span>
+            <span>保存为 .png 文件</span>
           </div>
         </button>
 
