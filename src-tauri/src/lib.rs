@@ -1,5 +1,6 @@
 mod export_zip;
 mod export_pdf;
+mod window_lifecycle;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -430,7 +431,17 @@ fn scheduler_tick(app_handle: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            window_lifecycle::activate_window(&window);
+        } else {
+            log::error!("Single-instance activation could not find the main window");
+        }
+    }));
+
+    builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

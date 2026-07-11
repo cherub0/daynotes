@@ -16,6 +16,19 @@ function check(name, passed, details = undefined) {
   checks.push({ name, passed: Boolean(passed), details });
 }
 
+async function verifyPackagedSingleInstance(exePath) {
+  const first = spawn(exePath, [], { stdio: "ignore", windowsHide: true });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const second = spawn(exePath, [], { stdio: "ignore", windowsHide: true });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const imageName = path.basename(exePath);
+  const listing = spawnSync("tasklist", ["/FI", `IMAGENAME eq ${imageName}`, "/FO", "CSV", "/NH"], { encoding: "utf8" });
+  const processCount = listing.stdout.split(/\r?\n/).filter((line) => line.toLowerCase().includes(imageName.toLowerCase())).length;
+  check("packaged app keeps one process after duplicate startup", processCount === 1, { imageName, processCount });
+  spawnSync("taskkill", ["/PID", String(first.pid), "/T", "/F"], { stdio: "ignore" });
+  if (!second.killed) spawnSync("taskkill", ["/PID", String(second.pid), "/T", "/F"], { stdio: "ignore" });
+}
+
 async function resetOutputDir() {
   await fs.mkdir(outDir, { recursive: true });
   for (const entry of await fs.readdir(outDir)) {
@@ -257,6 +270,10 @@ try {
   check("exported image file exists", imagePaths.length === 1, imagePaths);
   check("exported image decodes in browser", imageResults.every((img) => img.naturalWidth > 0 && img.naturalHeight > 0), imageResults);
   check("mock email command is reachable", emailReachable);
+
+  if (process.env.DAYNOTES_EXE) {
+    await verifyPackagedSingleInstance(process.env.DAYNOTES_EXE);
+  }
 
   const summary = {
     generatedAt: new Date().toISOString(),
