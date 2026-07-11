@@ -17,6 +17,13 @@
   --radius-sm: 4px;
   --transition: 0.2s ease;
   --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  --export-bg: #ffffff;
+  --export-text: #26282c;
+  --export-border: #d8dce3;
+  --export-accent: #4263eb;
+  --export-code-bg: #f4f6f8;
+  --export-muted: #60646c;
+  --export-done: #8b9099;
 }
 
 [data-theme="dark"] {

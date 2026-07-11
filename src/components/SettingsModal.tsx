@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { AppSettings, EmailSettings } from "../lib/types";
+import { testEmailSettings } from "../lib/tauri";
+import { validateEmailSettings } from "../lib/emailValidation";
 
 interface SettingsModalProps {
   settings: AppSettings | null;
@@ -35,6 +37,8 @@ const SMTP_PRESETS: { label: string; host: string; port: number }[] = [
 export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
   const [local, setLocal] = useState<AppSettings>(settings || DEFAULT_SETTINGS);
   const [selectedPreset, setSelectedPreset] = useState(0);
+  const [testEmailStatus, setTestEmailStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [testEmailMessage, setTestEmailMessage] = useState("");
 
   function updateEmail(field: keyof EmailSettings, value: string | number | boolean) {
     setLocal({
@@ -61,6 +65,25 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
   function handleSave() {
     onSave(local);
+  }
+
+  async function handleTestEmail() {
+    const errors = validateEmailSettings(local.email);
+    if (errors.length > 0) {
+      setTestEmailStatus("error");
+      setTestEmailMessage(errors.join("；"));
+      return;
+    }
+    setTestEmailStatus("sending");
+    setTestEmailMessage("");
+    try {
+      const result = await testEmailSettings();
+      setTestEmailStatus("success");
+      setTestEmailMessage(result);
+    } catch (error) {
+      setTestEmailStatus("error");
+      setTestEmailMessage(String(error));
+    }
   }
 
   return (
@@ -166,6 +189,28 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
             onChange={(e) => updateEmail("weekdays_only", e.target.checked)}
           />
           <label htmlFor="weekdays" style={{ margin: 0 }}>仅工作日发送（周一~周五）</label>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleTestEmail}
+            disabled={testEmailStatus === "sending"}
+          >
+            {testEmailStatus === "sending" ? "发送中…" : "发送测试邮件"}
+          </button>
+          {testEmailMessage && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: testEmailStatus === "success" ? "var(--accent)" : "#d64545",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {testEmailMessage}
+            </div>
+          )}
         </div>
 
         {/* ── Appearance ── */}

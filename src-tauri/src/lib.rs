@@ -112,7 +112,7 @@ fn init_db(conn: &Connection) {
     .expect("Failed to initialize database");
 }
 
-fn parse_app_settings(value: &str) -> AppSettings {
+pub(crate) fn parse_app_settings(value: &str) -> AppSettings {
     serde_json::from_str::<AppSettings>(value).unwrap_or_default()
 }
 
@@ -319,7 +319,7 @@ fn write_binary_file(path: String, contents: Vec<u8>) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
-fn send_email_smtp(settings: &EmailSettings, subject: &str, body: &str) -> Result<(), String> {
+pub(crate) fn send_email_smtp(settings: &EmailSettings, subject: &str, body: &str) -> Result<(), String> {
     use lettre::message::header::ContentType;
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::{Message, SmtpTransport, Transport};
@@ -573,6 +573,7 @@ pub fn run() {
             write_binary_file,
             export_zip::export_markdown_zip,
             export_pdf::export_pdf,
+            email::test_email_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

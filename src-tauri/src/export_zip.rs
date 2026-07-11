@@ -73,9 +73,6 @@ pub fn export_markdown_zip(
     let target = PathBuf::from(&path);
     let temp = temporary_path(&target);
     std::fs::write(&temp, bytes).map_err(|e| format!("写入临时 ZIP 失败：{e}"))?;
-    if target.exists() {
-        std::fs::remove_file(&target).map_err(|e| format!("替换已有 ZIP 失败：{e}"))?;
-    }
     if let Err(error) = std::fs::rename(&temp, &target) {
         let _ = std::fs::remove_file(&temp);
         return Err(format!("保存 ZIP 失败：{error}"));

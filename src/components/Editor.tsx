@@ -635,7 +635,7 @@ export function Editor({ content, onChange }: EditorProps) {
           color: var(--text-primary);
         }
 
-        .link-editor-error { color: #d64545; font-size: 12px; }
+        .link-editor-error { color: var(--danger); font-size: 12px; }
         .link-editor-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
         .link-editor-actions button { padding: 5px 9px; }
 

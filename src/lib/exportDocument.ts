@@ -141,7 +141,7 @@ export function parseExportDocument(date: string, html: string, todos: TodoItem[
         ?.slice("language-".length) || "";
       blocks.push({ kind: "code", language, text: code?.textContent || node.textContent || "" });
     } else if (tag === "table") {
-      const rows = Array.from(node.querySelectorAll("tr")).map((row) =>
+      const rows = Array.from(node.querySelectorAll(":scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr")).map((row) =>
         Array.from(row.querySelectorAll(":scope > th, :scope > td")).map(textOf),
       );
       blocks.push({ kind: "table", rows, header: Boolean(node.querySelector("th")) });

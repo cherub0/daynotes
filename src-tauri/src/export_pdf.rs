@@ -63,7 +63,23 @@ pub enum PdfExportBlock {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PdfInline { pub text: String }
+pub struct PdfInline {
+    pub text: String,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub code: bool,
+    #[serde(default)]
+    pub href: Option<String>,
+    #[serde(default)]
+    pub underline: bool,
+    #[serde(default)]
+    pub strike: bool,
+    #[serde(default)]
+    pub highlight: bool,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PdfTodo { pub text: String, pub done: bool, pub time: Option<String> }
@@ -86,7 +102,20 @@ enum LayoutItem {
 }
 
 fn inline_text(content: &[PdfInline]) -> String {
-    content.iter().map(|run| run.text.as_str()).collect()
+    content.iter().map(|run| {
+        let mut value = run.text.clone();
+        if run.strike { value = format!("\u{0336}{}", value.chars().map(|c| format!("{c}\u{0336}")).collect::<String>()); }
+        if run.code { value = format!("`{value}`"); }
+        if run.bold { value = format!("**{value}**"); }
+        if run.italic { value = format!("*{value}*"); }
+        if run.underline { value = format!("_{value}_"); }
+        if run.highlight { value = format!("=={value}=="); }
+        if let Some(ref href) = run.href {
+            if value == *href { value = href.clone(); }
+            else { value = format!("{value} ({href})"); }
+        }
+        value
+    }).collect()
 }
 
 fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
@@ -235,8 +264,10 @@ pub fn export_pdf(path: String, document: PdfExportDocument, images: Vec<PdfImag
     let target = PathBuf::from(&path);
     let temp = temp_path(&target);
     std::fs::write(&temp, bytes).map_err(|e| format!("写入临时 PDF 失败：{e}"))?;
-    if target.exists() { std::fs::remove_file(&target).map_err(|e| format!("替换已有 PDF 失败：{e}"))?; }
-    std::fs::rename(&temp, &target).map_err(|e| format!("保存 PDF 失败：{e}"))?;
+    std::fs::rename(&temp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        format!("保存 PDF 失败：{e}")
+    })?;
     Ok(PdfExportResult { path, pages: page_count, orientation: match orientation { Orientation::Portrait => "portrait", Orientation::Landscape => "landscape" }.into() })
 }
 

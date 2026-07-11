@@ -74,3 +74,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 export async function sendDailyEmail(): Promise<string> {
   return invoke("send_daily_email");
 }
+
+export async function testEmailSettings(): Promise<string> {
+  return invoke("test_email_settings");
+}
