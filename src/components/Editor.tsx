@@ -14,6 +14,9 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { common, createLowlight } from "lowlight";
 import { useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { LinkEditor, type EditorRange } from "./LinkEditor";
+import { TablePicker } from "./TablePicker";
 
 const lowlight = createLowlight(common);
 
@@ -179,21 +182,28 @@ export function Editor({ content, onChange }: EditorProps) {
 
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [showLinkEditor, setShowLinkEditor] = useState(false);
+  const [linkRange, setLinkRange] = useState<EditorRange>({ from: 0, to: 0 });
+  const [showTablePicker, setShowTablePicker] = useState(false);
   const imagePickerRef = useRef<HTMLDivElement>(null);
   const linkPickerRef = useRef<HTMLDivElement>(null);
+  const tablePickerRef = useRef<HTMLDivElement>(null);
 
   // Close popups on outside click
   useEffect(() => {
-    if (!showImagePicker && !showLinkPicker) return;
+    if (!showImagePicker && !showLinkPicker && !showLinkEditor && !showTablePicker) return;
     const handleClick = (e: MouseEvent) => {
       if (imagePickerRef.current?.contains(e.target as Node)) return;
       if (linkPickerRef.current?.contains(e.target as Node)) return;
+      if (tablePickerRef.current?.contains(e.target as Node)) return;
       setShowImagePicker(false);
       setShowLinkPicker(false);
+      setShowLinkEditor(false);
+      setShowTablePicker(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [showImagePicker, showLinkPicker]);
+  }, [showImagePicker, showLinkPicker, showLinkEditor, showTablePicker]);
 
   if (!editor) {
     return <div className="editor-loading">加载编辑器中…</div>;
@@ -249,48 +259,34 @@ export function Editor({ content, onChange }: EditorProps) {
   };
 
   const insertWebLink = () => {
+    setLinkRange({ from: editor.state.selection.from, to: editor.state.selection.to });
     setShowLinkPicker(false);
-    const url = window.prompt("请输入链接地址 (https://…):");
-    if (url) {
-      editor.chain().focus().setLink({ href: url }).run();
-    }
+    setShowLinkEditor(true);
   };
 
   const insertFileLink = async () => {
     setShowLinkPicker(false);
     try {
-      // Use Tauri dialog plugin for full file path
-      const { invoke } = await import("@tauri-apps/api/core");
-      const selected = await invoke("plugin:dialog|open", {
+      const selected = await open({
         title: "选择文件",
         multiple: false,
       });
       if (selected && typeof selected === "string") {
         const name = selected.split(/[\\/]/).pop() || selected;
-        editor
-          .chain()
-          .focus()
-          .insertContent(name)
-          .setLink({ href: `file:///${selected.replace(/\\/g, "/")}` })
-          .run();
+        const normalized = selected.replace(/\\/g, "/");
+        const encoded = normalized.split("/").map((part, index) => index === 0 ? part : encodeURIComponent(part)).join("/");
+        const mark = editor.schema.marks.link.create({ href: `file:///${encoded}` });
+        editor.chain().focus().insertContent(editor.schema.text(name, [mark]).toJSON()).run();
         return;
       }
-    } catch {
-      // Fallback: use hidden file input (no full path in webview)
+    } catch (error) {
+      window.alert(`无法选择本地文件：${String(error)}`);
     }
-    const input = document.createElement("input");
-    input.type = "file";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) {
-        editor.chain().focus().setLink({ href: `file:///${file.name}` }).run();
-      }
-    };
-    input.click();
   };
 
-  const addTable = () => {
-    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  const addTable = (rows: number, cols: number) => {
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+    setShowTablePicker(false);
   };
 
   return (
@@ -436,6 +432,13 @@ export function Editor({ content, onChange }: EditorProps) {
                 </button>
               </div>
             )}
+            {showLinkEditor && (
+              <LinkEditor
+                editor={editor}
+                initialRange={linkRange}
+                onClose={() => setShowLinkEditor(false)}
+              />
+            )}
           </div>
           <div className="toolbar-lang-group" ref={imagePickerRef}>
             <button className="toolbar-btn" onClick={addImage} title="插入图片">
@@ -452,10 +455,30 @@ export function Editor({ content, onChange }: EditorProps) {
               </div>
             )}
           </div>
-          <button className="toolbar-btn" onClick={addTable} title="插入表格">
-            ⊞
-          </button>
+          <div className="toolbar-lang-group" ref={tablePickerRef}>
+            <button className="toolbar-btn" onClick={() => setShowTablePicker((value) => !value)} title="插入表格">
+              ⊞
+            </button>
+            {showTablePicker && (
+              <TablePicker maxRows={20} maxCols={20} onSelect={addTable} onClose={() => setShowTablePicker(false)} />
+            )}
+          </div>
         </div>
+
+        {editor.isActive("table") && (
+          <>
+            <div className="toolbar-divider" />
+            <div className="toolbar-group table-actions">
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().addRowBefore().run()} disabled={!editor.can().chain().focus().addRowBefore().run()} title="在上方插入行">行↑</button>
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().addRowAfter().run()} disabled={!editor.can().chain().focus().addRowAfter().run()} title="在下方插入行">行↓</button>
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().addColumnBefore().run()} disabled={!editor.can().chain().focus().addColumnBefore().run()} title="在左侧插入列">列←</button>
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().addColumnAfter().run()} disabled={!editor.can().chain().focus().addColumnAfter().run()} title="在右侧插入列">列→</button>
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().deleteRow().run()} disabled={!editor.can().chain().focus().deleteRow().run()} title="删除当前行">删行</button>
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().deleteColumn().run()} disabled={!editor.can().chain().focus().deleteColumn().run()} title="删除当前列">删列</button>
+              <button className="toolbar-btn" onClick={() => editor.chain().focus().deleteTable().run()} title="删除表格">删表</button>
+            </div>
+          </>
+        )}
 
         <div className="toolbar-divider" />
 
@@ -547,6 +570,74 @@ export function Editor({ content, onChange }: EditorProps) {
         .toolbar-lang-group {
           position: relative;
         }
+
+        .table-picker,
+        .link-editor {
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 0;
+          z-index: 30;
+          padding: 10px;
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          background: var(--bg-primary);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+        }
+
+        .table-picker-size {
+          margin-bottom: 8px;
+          color: var(--text-secondary);
+          font-size: 12px;
+          text-align: center;
+        }
+
+        .table-picker-grid {
+          display: grid;
+          gap: 2px;
+          max-width: 360px;
+          max-height: 360px;
+          overflow: auto;
+        }
+
+        .table-picker-cell {
+          width: 16px;
+          height: 16px;
+          padding: 0;
+          border: 1px solid var(--border-color);
+          border-radius: 2px;
+          background: var(--bg-secondary);
+        }
+
+        .table-picker-cell.highlighted {
+          border-color: var(--accent);
+          background: var(--accent-light);
+        }
+
+        .link-editor {
+          width: 300px;
+        }
+
+        .link-editor label {
+          display: grid;
+          gap: 4px;
+          margin-bottom: 8px;
+          color: var(--text-secondary);
+          font-size: 12px;
+        }
+
+        .link-editor input {
+          width: 100%;
+          box-sizing: border-box;
+          padding: 7px 8px;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          background: var(--bg-secondary);
+          color: var(--text-primary);
+        }
+
+        .link-editor-error { color: #d64545; font-size: 12px; }
+        .link-editor-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+        .link-editor-actions button { padding: 5px 9px; }
 
         .lang-picker-dropdown {
           position: absolute;
