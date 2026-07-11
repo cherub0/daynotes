@@ -33,8 +33,12 @@ export interface PdfExportResult {
   orientation: "portrait" | "landscape";
 }
 
-export async function exportPdf(path: string, html: string): Promise<PdfExportResult> {
-  return invoke("export_pdf", { path, html });
+export async function exportPdf(
+  path: string,
+  document: import("./exportDocument").ExportDocument,
+  images: PdfImagePayload[],
+): Promise<PdfExportResult> {
+  return invoke("export_pdf", { path, document, images });
 }
 
 // ── Note CRUD ───────────────────────────────────────────────────
