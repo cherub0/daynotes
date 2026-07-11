@@ -15,8 +15,27 @@ interface ShareModalProps {
   onToast: (msg: string) => void;
 }
 
+function decodeDataUrl(source: string): Uint8Array | null {
+  const comma = source.indexOf(",");
+  if (comma === -1) return null;
+  const isBase64 = source.slice(0, comma).includes(";base64");
+  const data = source.slice(comma + 1);
+  try {
+    if (isBase64) {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+    return new TextEncoder().encode(decodeURIComponent(data));
+  } catch {
+    return null;
+  }
+}
+
 async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
   if (image.kind === "local") return null;
+  if (image.kind === "data") return decodeDataUrl(image.source);
   const response = await fetch(image.source);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return new Uint8Array(await response.arrayBuffer());

@@ -131,7 +131,28 @@ export function parseExportDocument(date: string, html: string, todos: TodoItem[
     if (/^h[1-6]$/.test(tag)) {
       blocks.push({ kind: "heading", level: Number(tag[1]), content: parseInline(node) });
     } else if (tag === "p") {
-      blocks.push({ kind: "paragraph", content: parseInline(node) });
+      const imgs = node.querySelectorAll("img");
+      if (imgs.length === 0) {
+        blocks.push({ kind: "paragraph", content: parseInline(node) });
+      } else {
+        // Split paragraph at image boundaries, preserving text on both sides
+        for (const child of Array.from(node.childNodes)) {
+          if (child instanceof HTMLImageElement) {
+            registerImage(child);
+          } else {
+            const wrapper = document.createElement("span");
+            if (child.nodeType === Node.TEXT_NODE) {
+              wrapper.textContent = child.textContent;
+            } else if (child instanceof Element) {
+              wrapper.append(child.cloneNode(true));
+            }
+            const text = textOf(wrapper);
+            if (text) {
+              blocks.push({ kind: "paragraph", content: parseInline(wrapper) });
+            }
+          }
+        }
+      }
     } else if (tag === "blockquote") {
       blocks.push({ kind: "quote", content: parseInline(node) });
     } else if (tag === "pre") {

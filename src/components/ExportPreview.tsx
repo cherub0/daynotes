@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ExportDocument, ExportInline } from "../lib/exportDocument";
+import { formatDateDisplay } from "../lib/types";
 
 interface ExportPreviewProps {
   document: ExportDocument;
@@ -22,9 +23,14 @@ function InlineContent({ content }: { content: ExportInline[] }) {
 
 export function ExportPreview({ document, previewRef }: ExportPreviewProps) {
   const images = new Map(document.images.map((image) => [image.id, image]));
+  const displayDate = formatDateDisplay(document.date);
   return (
     <div className="export-document" ref={previewRef}>
-      <h1>{document.date}</h1>
+      <div className="export-header">
+        <div className="export-header-brand">📝 DayNotes</div>
+        <div className="export-header-date">{displayDate}</div>
+      </div>
+      <div className="export-body">
       {document.blocks.map((block, index) => {
         switch (block.kind) {
           case "heading": {
@@ -60,6 +66,8 @@ export function ExportPreview({ document, previewRef }: ExportPreviewProps) {
           );
         }
       })}
+      </div>
+      <div className="export-footer">由 DayNotes 生成</div>
     </div>
   );
 }
