@@ -1,6 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Note, AppSettings } from "./types";
 
+export interface ExportImagePayload {
+  path: string;
+  bytes: number[];
+}
+
+export interface ExportResult {
+  path: string;
+  image_count: number;
+}
+
+export async function exportMarkdownZip(
+  path: string,
+  markdownName: string,
+  markdown: string,
+  images: ExportImagePayload[],
+): Promise<ExportResult> {
+  return invoke("export_markdown_zip", { path, markdownName, markdown, images });
+}
+
 // ── Note CRUD ───────────────────────────────────────────────────
 
 export async function saveNote(date: string, content: string, todos: string): Promise<void> {

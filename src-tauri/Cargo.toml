@@ -27,3 +27,4 @@ chrono = { version = "0.4", features = ["serde"] }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
 tokio = { version = "1", features = ["full"] }
 tauri-plugin-dialog = "2.7.1"
+zip = { version = "8.6", default-features = false, features = ["deflate"] }

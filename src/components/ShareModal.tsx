@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { formatDateDisplay } from "../lib/types";
 import type { TodoItem } from "../lib/types";
+import { save } from "@tauri-apps/plugin-dialog";
+import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/exportDocument";
+import { exportMarkdownZip, type ExportImagePayload } from "../lib/tauri";
 
 interface ShareModalProps {
   currentDate: string;
@@ -10,28 +13,17 @@ interface ShareModalProps {
   onToast: (msg: string) => void;
 }
 
+async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
+  if (image.kind === "local") return null;
+  const response = await fetch(image.source);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export function ShareModal({ currentDate, content, todos, onClose, onToast }: ShareModalProps) {
   const [exporting, setExporting] = useState(false);
 
-  type ExportImage = { src: string; alt: string };
-
-  function getDataImageExtension(dataUrl: string): string {
-    const mime = dataUrl.match(/^data:([^;,]+)[;,]/)?.[1]?.toLowerCase();
-    switch (mime) {
-      case "image/jpeg":
-      case "image/jpg":
-        return "jpg";
-      case "image/gif":
-        return "gif";
-      case "image/webp":
-        return "webp";
-      case "image/svg+xml":
-        return "svg";
-      case "image/png":
-      default:
-        return "png";
-    }
-  }
+  type LegacyExportImage = { src: string; alt: string };
 
   function stripHtml(html: string): string {
     const div = document.createElement("div");
@@ -39,8 +31,8 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     return div.textContent || "";
   }
 
-  function htmlToMarkdown(html: string): { md: string; images: ExportImage[] } {
-    const images: ExportImage[] = [];
+  function htmlToMarkdown(html: string): { md: string; images: LegacyExportImage[] } {
+    const images: LegacyExportImage[] = [];
     const doc = new DOMParser().parseFromString(html, "text/html");
 
     function compactText(text: string): string {
@@ -172,71 +164,39 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   async function exportMarkdown() {
     setExporting(true);
     try {
-      const { md: bodyMd, images } = htmlToMarkdown(content);
-      let md = `# ${formatDateDisplay(currentDate)}\n\n${bodyMd}`;
-      md += "\n\n## 待办清单\n\n";
-      todos.forEach((t) => {
-        md += `- [${t.done ? "x" : " "}] ${t.text}${t.time ? ` @ ${t.time}` : ""}\n`;
+      const path = await save({
+        title: "导出 Markdown 压缩包",
+        defaultPath: `DayNotes-${currentDate}.zip`,
+        filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
       });
+      if (!path) return;
 
-      // If there are embedded images, save them alongside the .md via filesystem
-      if (images.length > 0) {
-        try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          const imageFiles = images.map((image, index) =>
-            `image_${index + 1}.${getDataImageExtension(image.src)}`
-          );
-          const dir = await invoke("plugin:dialog|open", {
-            title: "选择导出目录",
-            directory: true,
-            multiple: false,
-          });
-          if (dir && typeof dir === "string") {
-            // Decode and write each image using its original data URL MIME type.
-            for (let i = 0; i < images.length; i++) {
-              const base64 = images[i].src.split(",")[1];
-              const binaryStr = atob(base64);
-              const bytes = new Uint8Array(binaryStr.length);
-              for (let j = 0; j < binaryStr.length; j++) {
-                bytes[j] = binaryStr.charCodeAt(j);
-              }
-              await invoke("write_binary_file", {
-                path: `${dir}\\${imageFiles[i]}`,
-                contents: Array.from(bytes),
-              });
-            }
-            // Replace placeholders with filenames
-            for (let i = 0; i < images.length; i++) {
-              const alt = images[i].alt || `image_${i + 1}`;
-              md = md.replace(`%%IMG_${i}%%`, `![${alt}](${imageFiles[i]})`);
-            }
-            // Write markdown file
-            await invoke("write_text_file", {
-              path: `${dir}\\daynotes-${currentDate}.md`,
-              contents: md,
-            });
-            onToast(`已导出到 ${dir}`);
-            setExporting(false);
-            onClose();
-            return;
-          }
-        } catch (e) {
-          console.error("FS export failed, falling back:", e);
+      const exported = renderMarkdown(parseExportDocument(currentDate, content, todos));
+      let markdown = exported.markdown;
+      const payloads: ExportImagePayload[] = [];
+      let remoteFailures = 0;
+      for (const image of exported.images) {
+        const bytes = await loadExportImage(image).catch(() => null);
+        if (!bytes) {
+          if (image.kind === "remote") remoteFailures += 1;
+          continue;
+        }
+        payloads.push({ path: `images/${image.filename}`, bytes: Array.from(bytes) });
+        if (image.kind === "remote") {
+          markdown = markdown.split(`](${image.source})`).join(`](images/${image.filename})`);
         }
       }
 
-      // Fallback: browser download (no images, or FS export failed)
-      for (let i = 0; i < images.length; i++) {
-        md = md.replace(`%%IMG_${i}%%`, `[图片 ${i + 1} — 请选择目录导出以保存图片]`);
-      }
-      const blob = new Blob([md], { type: "text/markdown" });
-      downloadBlob(blob, `daynotes-${currentDate}.md`);
-      onToast("已导出 Markdown 到下载文件夹");
-    } catch {
-      onToast("导出失败");
+      const result = await exportMarkdownZip(path, `${currentDate}.md`, markdown, payloads);
+      onToast(remoteFailures
+        ? `已导出到 ${result.path}，${remoteFailures} 张网络图片未能打包，已保留原链接`
+        : `已导出 Markdown 压缩包：${result.path}`);
+    } catch (error) {
+      onToast(`导出失败：${String(error)}`);
+    } finally {
+      setExporting(false);
+      onClose();
     }
-    setExporting(false);
-    onClose();
   }
 
   async function exportPDF() {

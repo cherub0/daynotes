@@ -1,3 +1,5 @@
+mod export_zip;
+
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -556,6 +558,7 @@ pub fn run() {
             send_daily_email,
             write_text_file,
             write_binary_file,
+            export_zip::export_markdown_zip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
