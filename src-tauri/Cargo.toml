@@ -28,3 +28,4 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 tokio = { version = "1", features = ["full"] }
 tauri-plugin-dialog = "2.7.1"
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
+printpdf = { version = "0.9.1", default-features = false, features = ["png", "jpeg"] }

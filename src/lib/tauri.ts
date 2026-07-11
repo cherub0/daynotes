@@ -20,6 +20,27 @@ export async function exportMarkdownZip(
   return invoke("export_markdown_zip", { path, markdownName, markdown, images });
 }
 
+export interface PdfImagePayload {
+  id: string;
+  bytes: number[];
+  width: number;
+  height: number;
+}
+
+export interface PdfExportResult {
+  path: string;
+  pages: number;
+  orientation: "portrait" | "landscape";
+}
+
+export async function exportPdf(
+  path: string,
+  document: import("./exportDocument").ExportDocument,
+  images: PdfImagePayload[],
+): Promise<PdfExportResult> {
+  return invoke("export_pdf", { path, document, images });
+}
+
 // ── Note CRUD ───────────────────────────────────────────────────
 
 export async function saveNote(date: string, content: string, todos: string): Promise<void> {

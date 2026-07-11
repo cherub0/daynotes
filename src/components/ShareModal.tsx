@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { toBlob } from "html-to-image";
 import { formatDateDisplay } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { save } from "@tauri-apps/plugin-dialog";
 import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/exportDocument";
-import { exportMarkdownZip, type ExportImagePayload } from "../lib/tauri";
+import { exportMarkdownZip, exportPdf, type ExportImagePayload, type PdfImagePayload } from "../lib/tauri";
+import { ExportPreview } from "./ExportPreview";
 
 interface ShareModalProps {
   currentDate: string;
@@ -20,8 +22,22 @@ async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+async function buildPdfImage(image: ExportImage): Promise<PdfImagePayload | null> {
+  const bytes = await loadExportImage(image);
+  if (!bytes) return null;
+  const bitmap = await createImageBitmap(new Blob([bytes]));
+  const payload = { id: image.id, bytes: Array.from(bytes), width: bitmap.width, height: bitmap.height };
+  bitmap.close();
+  return payload;
+}
+
 export function ShareModal({ currentDate, content, todos, onClose, onToast }: ShareModalProps) {
   const [exporting, setExporting] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const previewDocument = useMemo(
+    () => parseExportDocument(currentDate, content, todos),
+    [currentDate, content, todos],
+  );
 
   type LegacyExportImage = { src: string; alt: string };
 
@@ -202,33 +218,23 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   async function exportPDF() {
     setExporting(true);
     try {
-      // Create a clean HTML for printing
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>DayNotes - ${formatDateDisplay(currentDate)}</title>
-<style>
-  body { font-family: "Microsoft YaHei", sans-serif; padding: 20px; line-height: 1.8; color: #333; }
-  h1 { font-size: 20px; border-bottom: 2px solid #4263eb; padding-bottom: 8px; }
-  h2 { font-size: 16px; }
-  pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
-  code { background: #f5f5f5; padding: 2px 4px; border-radius: 2px; }
-  blockquote { border-left: 3px solid #4263eb; padding-left: 10px; margin-left: 0; color: #666; }
-  .todo-done { text-decoration: line-through; color: #999; }
-</style></head><body>
-  <h1>${formatDateDisplay(currentDate)}</h1>
-  ${content}
-  <h2>待办清单</h2>
-  <ul>${todos.map((t) => `<li class="${t.done ? "todo-done" : ""}">${t.done ? "☑" : "☐"} ${t.text}${t.time ? ` @ ${t.time}` : ""}</li>`).join("")}</ul>
-</body></html>`;
-
-      const blob = new Blob([html], { type: "text/html" });
-      // Open in new window for print
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      onToast("已在新窗口打开，可使用 Ctrl+P 保存为 PDF");
-    } catch {
-      onToast("导出失败");
+      const path = await save({
+        title: "导出 PDF",
+        defaultPath: `DayNotes-${currentDate}.pdf`,
+        filters: [{ name: "PDF 文档", extensions: ["pdf"] }],
+      });
+      if (!path) return;
+      const document = parseExportDocument(currentDate, content, todos);
+      const images = (await Promise.all(document.images.map((image) => buildPdfImage(image).catch(() => null))))
+        .filter((image): image is PdfImagePayload => image !== null);
+      const result = await exportPdf(path, document, images);
+      onToast(`已导出 ${result.pages} 页 PDF（${result.orientation === "landscape" ? "横向" : "纵向"}）：${result.path}`);
+    } catch (error) {
+      onToast(`PDF 导出失败：${String(error)}`);
+    } finally {
+      setExporting(false);
+      onClose();
     }
-    setExporting(false);
-    onClose();
   }
 
   async function copyAsHtml() {
@@ -396,6 +402,19 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   async function exportImage() {
     setExporting(true);
     try {
+      if (previewRef.current) {
+        await document.fonts.ready;
+        const blob = await toBlob(previewRef.current, {
+          pixelRatio: 2,
+          backgroundColor: "#ffffff",
+          cacheBust: true,
+        });
+        if (!blob) throw new Error("无法生成图片数据");
+        downloadBlob(blob, `DayNotes-${currentDate}.png`);
+        onToast("已按分享预览导出长图");
+        setExporting(false);
+        onClose();
+      } else {
       const { md: bodyMd } = htmlToMarkdown(content || "");
       const todoText =
         todos.length > 0
@@ -525,6 +544,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         onClose();
       }, "image/png");
       return; // wait for async toBlob callback
+      }
     } catch {
       onToast("导出失败");
       setExporting(false);
@@ -558,6 +578,9 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
 
   return (
     <div className="modal-overlay" onClick={onClose}>
+      <div style={{ position: "fixed", left: -100000, top: 0, width: 800, pointerEvents: "none" }}>
+        <ExportPreview document={previewDocument} previewRef={previewRef} />
+      </div>
       <div className="modal-backdrop" />
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>×</button>

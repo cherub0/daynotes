@@ -1,4 +1,5 @@
 mod export_zip;
+mod export_pdf;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -559,6 +560,7 @@ pub fn run() {
             write_text_file,
             write_binary_file,
             export_zip::export_markdown_zip,
+            export_pdf::export_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
