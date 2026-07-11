@@ -78,3 +78,9 @@ export async function sendDailyEmail(): Promise<string> {
 export async function testEmailSettings(): Promise<string> {
   return invoke("test_email_settings");
 }
+
+// ── File I/O ────────────────────────────────────────────────────
+
+export async function readBinaryFile(path: string): Promise<number[]> {
+  return invoke("read_binary_file", { path });
+}

@@ -7,6 +7,7 @@ dist/
 dist-ssr/
 release/
 verify-results/
+verify-output/
 
 # ── Rust / Tauri ──
 src-tauri/target/

@@ -319,6 +319,11 @@ fn write_binary_file(path: String, contents: Vec<u8>) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn read_binary_file(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| e.to_string())
+}
+
 pub(crate) fn send_email_smtp(settings: &EmailSettings, subject: &str, body: &str) -> Result<(), String> {
     use lettre::message::header::ContentType;
     use lettre::transport::smtp::authentication::Credentials;
@@ -571,6 +576,7 @@ pub fn run() {
             send_daily_email,
             write_text_file,
             write_binary_file,
+            read_binary_file,
             export_zip::export_markdown_zip,
             export_pdf::export_pdf,
             email::test_email_settings,

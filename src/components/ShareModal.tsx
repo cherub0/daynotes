@@ -3,9 +3,40 @@ import { toBlob } from "html-to-image";
 import { formatDateDisplay } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { save } from "@tauri-apps/plugin-dialog";
-import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/exportDocument";
-import { exportMarkdownZip, exportPdf, type ExportImagePayload, type PdfImagePayload } from "../lib/tauri";
+import { parseExportDocument, renderMarkdown, renderPrintHtml, type ExportImage } from "../lib/exportDocument";
+import { exportMarkdownZip, readBinaryFile, type ExportImagePayload } from "../lib/tauri";
 import { ExportPreview } from "./ExportPreview";
+
+async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
+  if (image.kind === "local") {
+    try {
+      const bytes = await readBinaryFile(image.source);
+      return new Uint8Array(bytes);
+    } catch {
+      return null;
+    }
+  }
+  if (image.kind === "data") {
+    const comma = image.source.indexOf(",");
+    if (comma === -1) return null;
+    const isBase64 = image.source.slice(0, comma).includes(";base64");
+    const data = image.source.slice(comma + 1);
+    try {
+      if (isBase64) {
+        const binary = atob(data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+      }
+      return new TextEncoder().encode(decodeURIComponent(data));
+    } catch {
+      return null;
+    }
+  }
+  const response = await fetch(image.source);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
 
 interface ShareModalProps {
   currentDate: string;
@@ -15,40 +46,7 @@ interface ShareModalProps {
   onToast: (msg: string) => void;
 }
 
-function decodeDataUrl(source: string): Uint8Array | null {
-  const comma = source.indexOf(",");
-  if (comma === -1) return null;
-  const isBase64 = source.slice(0, comma).includes(";base64");
-  const data = source.slice(comma + 1);
-  try {
-    if (isBase64) {
-      const binary = atob(data);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      return bytes;
-    }
-    return new TextEncoder().encode(decodeURIComponent(data));
-  } catch {
-    return null;
-  }
-}
 
-async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
-  if (image.kind === "local") return null;
-  if (image.kind === "data") return decodeDataUrl(image.source);
-  const response = await fetch(image.source);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-async function buildPdfImage(image: ExportImage): Promise<PdfImagePayload | null> {
-  const bytes = await loadExportImage(image);
-  if (!bytes) return null;
-  const bitmap = await createImageBitmap(new Blob([bytes]));
-  const payload = { id: image.id, bytes: Array.from(bytes), width: bitmap.width, height: bitmap.height };
-  bitmap.close();
-  return payload;
-}
 
 export function ShareModal({ currentDate, content, todos, onClose, onToast }: ShareModalProps) {
   const [exporting, setExporting] = useState(false);
@@ -121,17 +119,31 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   async function exportPDF() {
     setExporting(true);
     try {
-      const path = await save({
-        title: "导出 PDF",
-        defaultPath: `DayNotes-${currentDate}.pdf`,
-        filters: [{ name: "PDF 文档", extensions: ["pdf"] }],
-      });
-      if (!path) return;
       const document = parseExportDocument(currentDate, content, todos);
-      const images = (await Promise.all(document.images.map((image) => buildPdfImage(image).catch(() => null))))
-        .filter((image): image is PdfImagePayload => image !== null);
-      const result = await exportPdf(path, document, images);
-      onToast(`已导出 ${result.pages} 页 PDF（${result.orientation === "landscape" ? "横向" : "纵向"}）：${result.path}`);
+
+      // Convert local images to data URLs so they render in the browser
+      const localFailures: string[] = [];
+      for (const image of document.images) {
+        if (image.kind !== "local") continue;
+        try {
+          const bytes = await readBinaryFile(image.source);
+          const mime = image.mimeType || "image/png";
+          const base64 = btoa(String.fromCharCode(...bytes));
+          image.source = `data:${mime};base64,${base64}`;
+          image.kind = "data";
+        } catch {
+          localFailures.push(image.alt || image.filename);
+        }
+      }
+
+      const html = renderPrintHtml(document);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      const warning = localFailures.length
+        ? `（${localFailures.length} 张本地图片无法读取）`
+        : "";
+      onToast(`已在新窗口打开，使用 Ctrl+P → 另存为 PDF${warning}`);
     } catch (error) {
       onToast(`PDF 导出失败：${String(error)}`);
     } finally {
