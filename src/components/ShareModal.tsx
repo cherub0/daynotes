@@ -3,8 +3,8 @@ import { toBlob } from "html-to-image";
 import { formatDateDisplay } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { save } from "@tauri-apps/plugin-dialog";
-import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/exportDocument";
-import { exportMarkdownZip, exportPdf, readBinaryFile, writeBinaryFile, type ExportImagePayload, type PdfImagePayload } from "../lib/tauri";
+import { parseExportDocument, renderMarkdown, renderPrintHtml, type ExportImage } from "../lib/exportDocument";
+import { exportMarkdownZip, exportPdf, readBinaryFile, writeBinaryFile, type ExportImagePayload } from "../lib/tauri";
 import { ExportPreview } from "./ExportPreview";
 
 async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
@@ -120,28 +120,30 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     setExporting(true);
     try {
       const path = await save({
-        title: "导出 PDF",
-        defaultPath: `DayNotes-${currentDate}.pdf`,
-        filters: [{ name: "PDF 文档", extensions: ["pdf"] }],
+        title: "导出 HTML（浏览器打开后 Ctrl+P 另存 PDF）",
+        defaultPath: `DayNotes-${currentDate}.html`,
+        filters: [{ name: "HTML 网页", extensions: ["html"] }],
       });
       if (!path) { setExporting(false); return; }
 
       const document = parseExportDocument(currentDate, content, todos);
-      // Build image payloads: decode data URLs / read local files / fetch remote
-      const pdfImages: PdfImagePayload[] = [];
+      // Convert local images to data URLs
       for (const image of document.images) {
-        const bytes = await loadExportImage(image).catch(() => null);
-        if (!bytes) continue;
-        const blob = new Blob([bytes]);
-        const bitmap = await createImageBitmap(blob);
-        pdfImages.push({ id: image.id, bytes: Array.from(bytes), width: bitmap.width, height: bitmap.height });
-        bitmap.close();
+        if (image.kind !== "local") continue;
+        try {
+          const bytes = await readBinaryFile(image.source);
+          const mime = image.mimeType || "image/png";
+          const base64 = btoa(String.fromCharCode(...bytes));
+          image.source = `data:${mime};base64,${base64}`;
+          image.kind = "data";
+        } catch { /* keep placeholder */ }
       }
 
-      const result = await exportPdf(path, document, pdfImages);
-      onToast(`已导出 PDF（${result.pages} 页）：${result.path}`);
+      const html = renderPrintHtml(document);
+      const result = await exportPdf(path, html);
+      onToast(`已保存并在浏览器中打开：${result.path}`);
     } catch (error) {
-      onToast(`PDF 导出失败：${String(error)}`);
+      onToast(`导出失败：${String(error)}`);
     } finally {
       setExporting(false);
       onClose();
