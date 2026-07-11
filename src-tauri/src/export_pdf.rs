@@ -185,10 +185,11 @@ fn build_layout(document: &PdfExportDocument, images: &[PdfImagePayload], conten
 }
 
 fn find_chinese_font() -> Result<Vec<u8>, String> {
-    [r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\msyh.ttf", r"C:\Windows\Fonts\simhei.ttf"]
+    // Prefer single .ttf over .ttc (printpdf handles TTF better for CJK)
+    [r"C:\Windows\Fonts\simhei.ttf", r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\msyh.ttf"]
         .iter()
         .find_map(|path| std::fs::read(path).ok())
-        .ok_or_else(|| "未找到可嵌入 PDF 的中文字体（微软雅黑/黑体）".to_string())
+        .ok_or_else(|| "未找到可嵌入 PDF 的中文字体".to_string())
 }
 
 fn temp_path(path: &Path) -> PathBuf {
@@ -272,7 +273,7 @@ pub fn export_pdf(path: String, document: PdfExportDocument, images: Vec<PdfImag
 
 #[cfg(test)]
 mod tests {
-    use super::{choose_orientation, fit_size, paginate_blocks, DocumentMetrics, Orientation};
+    use super::*;
 
     #[test]
     fn chooses_orientation_from_content_width() {
