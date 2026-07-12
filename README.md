@@ -1,118 +1,195 @@
-# DayNotes 📝
+# DayNotes
 
-> 以日期为核心维度的 Windows 桌面便签应用，兼具富文本编辑、待办管理、代码记录与分享协作能力。
+DayNotes 是一款以日期为核心的 Windows 桌面笔记应用。每天对应一篇笔记，集成富文本编辑、待办清单、自动保存、内容导出和 SMTP 邮件推送，主要面向中文用户。
 
-## ✨ 功能特性
+## 主要功能
 
 | 功能 | 说明 |
-|------|------|
-| 📝 **富文本编辑** | 基于 Tiptap，加粗/斜体/下划线/删除线/高亮/标题/列表/引用/表格 |
-| 🔗 **链接与图片** | 插入超链接和图片 |
-| 💻 **代码块** | 语法高亮（190+ 语言），等宽字体深色背景 |
-| 📋 **待办清单** | 添加/勾选/编辑/删除，支持时间标记和进度统计 |
-| 📅 **日期导航** | 左右翻页、日历选择器、快捷键 `Ctrl+←` `Ctrl+→` |
-| 📤 **分享导出** | Markdown / 富文本复制 / PDF / 分享图片 |
-| 📧 **邮件推送** | SMTP 定时发送每日任务，支持工作日模式 |
-| 🌙 **深色主题** | 跟随系统 / 浅色 / 深色 |
-| 💾 **自动保存** | 编辑后 2 秒自动保存，`Ctrl+S` 手动保存 |
+| --- | --- |
+| 富文本编辑 | 支持粗体、斜体、下划线、删除线、高亮、标题、引用、列表、任务列表、链接、图片和表格 |
+| 代码块 | 支持语法高亮、语言选择和代码内容导出 |
+| 日期笔记 | 按 `YYYY-MM-DD` 管理每日笔记，支持前后翻页和日历选择 |
+| 待办清单 | 支持新增、编辑、完成和删除，并显示完成进度 |
+| 自动保存 | 编辑后 2 秒自动保存，`Ctrl+S` 可立即保存 |
+| 分享导出 | 支持 Markdown、富文本 HTML、PDF、图片以及包含资源文件的 ZIP 导出 |
+| 高保真 PDF | 使用浏览器渲染结果分页生成 PDF，保留编辑器中的表格、图片、代码块和格式样式 |
+| 邮件推送 | 支持 SMTP 配置、测试邮件和每日内容推送 |
+| 外观主题 | 支持浅色、深色和跟随系统主题 |
+| 单实例运行 | 重复启动时激活已有窗口，避免同时打开多个应用实例 |
 
-## 🏗 技术栈
+## 分享与导出
 
-```
-桌面框架    Tauri 2.0 (Rust)
-前端        React 19 + TypeScript
-编辑器      Tiptap 3 + lowlight
-样式        CSS Variables（无框架依赖）
-数据库      SQLite (rusqlite)
-邮件        lettre (SMTP)
-构建        Vite 6
-```
+分享页会基于当前编辑器文档生成预览，并覆盖编辑器中的可编辑内容，包括：
 
-## 🔧 开发环境要求
+- 标题、段落、粗体、斜体、下划线、删除线和高亮
+- 有序列表、无序列表、任务列表和引用
+- 链接、图片、表格、水平分割线和换行
+- 带语言信息的代码块
+- 当前日期对应的待办清单及完成状态
 
-- **Node.js** >= 20.10
-- **Rust** >= 1.77 (MSVC toolchain)
-- **Visual Studio 2022 Build Tools**（C++ workload）
-- **Windows 10/11**
+Markdown 导出会尽量保留语义结构；PDF 和图片导出侧重视觉一致性。包含本地或嵌入图片时，可以导出 ZIP，使 Markdown 与图片资源一并保存。
 
-## 🚀 快速开始
+## 技术栈
 
-```bash
-# 1. 克隆项目
+| 层级 | 技术 |
+| --- | --- |
+| 桌面框架 | Tauri 2 |
+| 前端 | React 19、TypeScript 5、Vite 6 |
+| 编辑器 | Tiptap 3、lowlight |
+| 后端 | Rust、Tokio |
+| 数据库 | SQLite、rusqlite |
+| 邮件 | lettre、rustls |
+| 测试 | Vitest、Testing Library、Playwright、Rust Test |
+
+## 环境要求
+
+- Windows 10/11 x64
+- Node.js 20.10 或更高版本
+- npm 10 或更高版本
+- Rust stable MSVC 工具链
+- Visual Studio 2022 Build Tools，并安装“使用 C++ 的桌面开发”工作负载
+- WebView2 Runtime
+
+### 中文用户目录注意事项
+
+如果 Windows 用户名或 Rust 安装路径包含中文，必须使用 MSVC 工具链，不能使用 MinGW GNU 工具链。同时需要确保 Visual Studio 的 `link.exe` 位于 Git 自带的 `link.exe` 之前。
+
+仓库中的 `dev.ps1` 会自动检测最新的 MSVC 和 Windows SDK，并配置 `PATH`、`LIB` 和 `INCLUDE` 环境变量。
+
+## 快速开始
+
+```powershell
 git clone https://github.com/cherub0/daynotes.git
 cd daynotes
-
-# 2. 安装前端依赖
 npm install
+```
 
-# 3. 启动开发
+启动完整桌面开发环境：
+
+```powershell
 .\dev.ps1
-# 或手动: npx tauri dev
-
-# 4. 构建生产版本
-npx tauri build
 ```
 
-## 📁 项目结构
+仅启动 Vite 前端：
 
+```powershell
+npm run dev
 ```
+
+## 常用命令
+
+```powershell
+# TypeScript 类型检查和前端生产构建
+npm run build
+
+# ESLint
+npm run lint
+
+# 前端单元与组件测试
+npm test
+
+# Rust 测试（自动配置 MSVC 环境）
+npm run verify:rust
+
+# 完整 UI 编辑能力与全部分享策略验证
+npm run verify:complete-ui
+
+# 检查并整理验证证据
+npm run verify:evidence
+
+# 完整验证
+npm run verify
+```
+
+完整 UI 验证结果和截图保存在 `verify-output/`。该目录用于保留编辑按钮覆盖情况及 Markdown、HTML、PDF、图片、ZIP 等分享策略的验证证据。
+
+## 生产构建
+
+建议在 Visual Studio Developer PowerShell 中执行：
+
+```powershell
+npm run tauri:build
+```
+
+构建完成后，主要产物位于：
+
+```text
+src-tauri/target/release/daynotes.exe
+src-tauri/target/release/bundle/nsis/DayNotes_<版本>_x64-setup.exe
+src-tauri/target/release/bundle/msi/DayNotes_<版本>_x64_zh-CN.msi
+```
+
+当前应用版本为 `0.1.0`。正式对外分发前，建议为安装包配置 Windows 代码签名证书。
+
+## 项目结构
+
+```text
 daynotes/
-├── src-tauri/                    # Tauri 后端 (Rust)
-│   ├── Cargo.toml                # Rust 依赖配置
-│   ├── tauri.conf.json           # 窗口/打包配置
-│   ├── capabilities/default.json # 权限声明
-│   └── src/
-│       ├── main.rs               # 程序入口
-│       └── lib.rs                # 核心逻辑
-│           ├── 数据库初始化 & 表创建
-│           ├── 笔记 CRUD（7 个 Tauri 命令）
-│           └── SMTP 邮件发送
-├── src/                          # 前端 (React + TS)
-│   ├── App.tsx                   # 主布局 & 状态 & 自动保存
-│   ├── lib/
-│   │   ├── types.ts              # 类型 + 日期工具函数
-│   │   └── tauri.ts              # Tauri IPC 调用封装
-│   └── components/
-│       ├── Editor.tsx            # Tiptap 富文本编辑器
-│       ├── DateHeader.tsx        # 日期导航栏
-│       ├── CalendarPicker.tsx    # 日历选择器
-│       ├── TodoPanel.tsx         # 待办清单面板
-│       ├── ShareModal.tsx        # 分享/导出弹窗
-│       └── SettingsModal.tsx     # 设置面板
-├── dev.ps1                       # 开发启动脚本（配置 MSVC 环境）
-└── package.json
+├─ src/                         React 前端
+│  ├─ components/              编辑器、日期栏、待办、分享和设置组件
+│  ├─ lib/                     IPC、类型、导出和通用逻辑
+│  ├─ App.tsx                  应用状态与页面布局
+│  └─ index.css                全局样式与主题变量
+├─ src-tauri/                  Tauri/Rust 后端
+│  ├─ src/email.rs             SMTP 邮件逻辑
+│  ├─ src/export_pdf.rs        PDF 生成
+│  ├─ src/export_zip.rs        Markdown 资源包生成
+│  ├─ src/window_lifecycle.rs  单实例窗口激活
+│  └─ src/lib.rs               数据库与 Tauri 命令注册
+├─ scripts/                    自动化验证脚本
+├─ verify-output/              UI 和分享策略验证证据
+├─ docs/                       设计、实现计划和验证记录
+├─ dev.ps1                    Windows MSVC 开发启动脚本
+└─ package.json
 ```
 
-## 💾 数据存储
+## 数据存储
 
-数据库：`%APPDATA%/com.daynotes.app/daynotes.db`（SQLite）
+SQLite 数据库默认位于：
+
+```text
+%APPDATA%/com.daynotes.app/daynotes.db
+```
+
+核心表结构：
 
 ```sql
 CREATE TABLE notes (
-    date TEXT PRIMARY KEY,    -- 'YYYY-MM-DD'
-    content TEXT,             -- HTML 内容
-    todos TEXT,               -- JSON 待办数组
+    date TEXT PRIMARY KEY,
+    content TEXT,
+    todos TEXT,
     created_at TEXT,
     updated_at TEXT
 );
 
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
-    value TEXT               -- JSON 设置
+    value TEXT
 );
 ```
 
-## 📧 邮件配置
+笔记正文以 HTML 保存，待办事项和应用设置以 JSON 保存。
 
-| 服务 | SMTP 服务器 | 端口 |
-|------|------------|------|
-| QQ邮箱 | smtp.qq.com | 465 |
-| 163邮箱 | smtp.163.com | 465 |
-| Gmail | smtp.gmail.com | 587 |
-| Outlook | smtp.office365.com | 587 |
+## SMTP 配置
 
-> QQ/163 邮箱需使用**授权码**而非登录密码。
+| 邮件服务 | SMTP 服务器 | 常用端口 |
+| --- | --- | --- |
+| QQ 邮箱 | `smtp.qq.com` | 465 |
+| 163 邮箱 | `smtp.163.com` | 465 |
+| Gmail | `smtp.gmail.com` | 587 |
+| Outlook | `smtp.office365.com` | 587 |
 
-## 📄 License
+QQ 邮箱和 163 邮箱通常需要使用 SMTP 授权码，而不是网页登录密码。不同邮件服务商的安全策略可能变化，请以服务商当前说明为准。
+
+## 后续规划
+
+- 建立统一的 UI 组件和设计令牌体系
+- 拆分编辑器、分享和设置模块，降低首屏 JavaScript 体积
+- 完善数据库迁移和敏感配置安全存储
+- 增加系统托盘、可靠的定时邮件和应用自动更新
+- 建立持续集成、安装包签名和自动发布流程
+- 为 Markdown、HTML、PDF、图片和 ZIP 导出持续补充回归测试
+
+## License
 
 MIT © cherub0
