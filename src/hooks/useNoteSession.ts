@@ -63,7 +63,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
         if (active) setNoteDates(new Set(dates));
       })
       .catch(() => {
-        if (active) onErrorRef.current("鍔犺浇绗旇澶辫触");
+        if (active) onErrorRef.current("加载笔记失败");
       });
     return () => {
       active = false;
@@ -82,7 +82,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
         setDirty(false);
       })
       .catch(() => {
-        if (loadGuardRef.current.isLatest(token)) onErrorRef.current("鍔犺浇绗旇澶辫触");
+        if (loadGuardRef.current.isLatest(token)) onErrorRef.current("加载笔记失败");
       });
   }, [currentDate]);
 
@@ -106,7 +106,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
         }
         return true;
       } catch {
-        if (mountedRef.current) onErrorRef.current("淇濆瓨澶辫触");
+        if (mountedRef.current) onErrorRef.current("保存失败");
         return false;
       }
     },

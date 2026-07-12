@@ -70,6 +70,22 @@ describe("useNoteSession loading", () => {
     expect(result.current.content).toBe("<p>new</p>");
   });
 
+  it("keeps visible content and reports the correct message when loading fails", async () => {
+    const onError = vi.fn();
+    vi.mocked(api.getNote)
+      .mockResolvedValueOnce(note("2026-07-11", "<p>visible</p>"))
+      .mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-11", onError, saveDelay: 20 }),
+    );
+    await waitFor(() => expect(result.current.content).toBe("<p>visible</p>"));
+    await act(() => result.current.changeDate("2026-07-12"));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith("加载笔记失败"));
+
+    expect(result.current.content).toBe("<p>visible</p>");
+  });
+
   it("debounces edits and saves the latest snapshot", async () => {
     vi.useFakeTimers();
     vi.mocked(api.getNote).mockResolvedValue(note("2026-07-11", "<p>start</p>"));
@@ -104,7 +120,7 @@ describe("useNoteSession loading", () => {
     act(() => result.current.setContent("<p>changed</p>"));
 
     await expect(result.current.saveNow()).resolves.toBe(false);
-    expect(onError).toHaveBeenCalledWith("淇濆瓨澶辫触");
+    expect(onError).toHaveBeenCalledWith("保存失败");
     expect(result.current.dirty).toBe(true);
     await expect(result.current.saveNow()).resolves.toBe(true);
     await waitFor(() => expect(result.current.dirty).toBe(false));
