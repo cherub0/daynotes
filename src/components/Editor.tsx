@@ -17,6 +17,10 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { LinkEditor, type EditorRange } from "./LinkEditor";
 import { TablePicker } from "./TablePicker";
+import {
+  readImageAsDataUrl,
+  validateImageFile,
+} from "./editor/imageFiles";
 
 const lowlight = createLowlight(common);
 
@@ -39,9 +43,6 @@ const LANGUAGES = [
   { label: "Markdown", value: "markdown" },
   { label: "纯文本", value: "plaintext" },
 ];
-
-// 10MB limit for inline images to prevent base64 bloat in SQLite
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface EditorProps {
   content: string;
@@ -103,16 +104,13 @@ export function Editor({ content, onChange }: EditorProps) {
           if (item.type.startsWith("image/")) {
             const file = item.getAsFile();
             if (file) {
-              if (file.size > MAX_IMAGE_BYTES) continue;
+              if (validateImageFile(file) !== null) continue;
               event.preventDefault();
               const pos = view.state.selection.from;
-              const reader = new FileReader();
-              reader.onload = (e) => {
-                const src = e.target?.result as string;
+              void readImageAsDataUrl(file).then((src) => {
                 const node = view.state.schema.nodes.image.create({ src });
                 view.dispatch(view.state.tr.insert(pos, node));
-              };
-              reader.readAsDataURL(file);
+              }).catch(() => undefined);
               return true;
             }
           }
@@ -122,31 +120,31 @@ export function Editor({ content, onChange }: EditorProps) {
       handleDrop: (view, event) => {
         const files = event.dataTransfer?.files;
         if (!files || files.length === 0) return false;
-        const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+        const imageFiles = Array.from(files).filter((file) => validateImageFile(file) !== "not-image");
         if (imageFiles.length === 0) return false;
         const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
         if (!coords) return false;
         event.preventDefault();
         // Process images sequentially to maintain order and correct positions
         let pos = coords.pos;
-        function processNext(index: number) {
+        async function processNext(index: number) {
           if (index >= imageFiles.length) return;
           const file = imageFiles[index];
-          if (file.size > MAX_IMAGE_BYTES) {
-            processNext(index + 1);
+          if (validateImageFile(file) !== null) {
+            await processNext(index + 1);
             return;
           }
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const src = e.target?.result as string;
+          try {
+            const src = await readImageAsDataUrl(file);
             const node = view.state.schema.nodes.image.create({ src });
             view.dispatch(view.state.tr.insert(pos, node));
             pos += node.nodeSize;
-            processNext(index + 1);
-          };
-          reader.readAsDataURL(file);
+          } catch {
+            // Ignore unreadable images and continue processing the remaining files.
+          }
+          await processNext(index + 1);
         }
-        processNext(0);
+        void processNext(0);
         return true;
       },
     },
@@ -240,18 +238,17 @@ export function Editor({ content, onChange }: EditorProps) {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    if (file.size > MAX_IMAGE_BYTES) {
+    if (!file) return;
+    const validationError = validateImageFile(file);
+    if (validationError === "not-image") return;
+    if (validationError === "too-large") {
       window.alert(`图片文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），请选择小于 10MB 的图片`);
       e.target.value = "";
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const src = ev.target?.result as string;
+    void readImageAsDataUrl(file).then((src) => {
       editor.chain().focus().setImage({ src }).run();
-    };
-    reader.readAsDataURL(file);
+    }).catch(() => undefined);
     e.target.value = "";
   };
 
