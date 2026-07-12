@@ -179,6 +179,46 @@ describe("useNoteSession loading", () => {
     expect(api.getNote).not.toHaveBeenCalledWith("2026-07-12");
   });
 
+  it("stays on the current note when saving before navigation fails", async () => {
+    vi.mocked(api.getNote).mockImplementation(async (date) => note(date, `<p>${date}</p>`));
+    vi.mocked(api.saveNote).mockRejectedValue(new Error("offline"));
+
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-11", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.content).toBe("<p>2026-07-11</p>"));
+    act(() => result.current.setContent("<p>unsaved</p>"));
+    await act(() => result.current.changeDate("2026-07-12"));
+
+    expect(result.current.currentDate).toBe("2026-07-11");
+    expect(result.current.content).toBe("<p>unsaved</p>");
+    expect(result.current.dirty).toBe(true);
+    expect(api.getNote).not.toHaveBeenCalledWith("2026-07-12");
+  });
+
+  it("stays on the current note when it is edited while the navigation save is pending", async () => {
+    const pendingSave = deferred<void>();
+    vi.mocked(api.getNote).mockImplementation(async (date) => note(date, `<p>${date}</p>`));
+    vi.mocked(api.saveNote).mockReturnValue(pendingSave.promise);
+
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-11", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.content).toBe("<p>2026-07-11</p>"));
+    act(() => result.current.setContent("<p>first edit</p>"));
+
+    let navigation!: Promise<void>;
+    act(() => { navigation = result.current.changeDate("2026-07-12"); });
+    act(() => result.current.setContent("<p>new edit during save</p>"));
+    pendingSave.resolve();
+    await act(async () => navigation);
+
+    expect(result.current.currentDate).toBe("2026-07-11");
+    expect(result.current.content).toBe("<p>new edit during save</p>");
+    expect(result.current.dirty).toBe(true);
+    expect(api.getNote).not.toHaveBeenCalledWith("2026-07-12");
+  });
+
   it("flushes dirty content on unmount", async () => {
     vi.mocked(api.getNote).mockResolvedValue(note("2026-07-11", "<p>start</p>"));
     vi.mocked(api.saveNote).mockResolvedValue();

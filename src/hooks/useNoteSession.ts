@@ -149,11 +149,20 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
       const navigationGeneration = ++navigationGenerationRef.current;
       clearSaveTimer();
       if (dirtyRef.current) {
-        await saveSnapshot(
-          currentDateRef.current,
-          contentRef.current,
-          JSON.stringify(todosRef.current),
-        );
+        const snapshotDate = currentDateRef.current;
+        const snapshotContent = contentRef.current;
+        const snapshotTodos = JSON.stringify(todosRef.current);
+        const saved = await saveSnapshot(snapshotDate, snapshotContent, snapshotTodos);
+        if (!saved) return;
+        if (navigationGeneration !== navigationGenerationRef.current) return;
+        if (
+          dirtyRef.current ||
+          currentDateRef.current !== snapshotDate ||
+          contentRef.current !== snapshotContent ||
+          JSON.stringify(todosRef.current) !== snapshotTodos
+        ) {
+          return;
+        }
       }
       if (navigationGeneration !== navigationGenerationRef.current) return;
       currentDateRef.current = date;
