@@ -8,6 +8,12 @@ export function validateImageFile(file: File): ImageFileError | null {
   return null;
 }
 
+export function takeSelectedFile(input: HTMLInputElement): File | null {
+  const file = input.files?.[0] ?? null;
+  input.value = "";
+  return file;
+}
+
 export function readImageAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

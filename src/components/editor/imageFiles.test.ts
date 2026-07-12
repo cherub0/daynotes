@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_IMAGE_BYTES,
   readImageAsDataUrl,
+  takeSelectedFile,
   validateImageFile,
 } from "./imageFiles";
 
@@ -32,6 +33,16 @@ describe("image files", () => {
     });
 
     expect(validateImageFile(file)).toBeNull();
+  });
+
+  it("clears the file input after taking a non-image file", () => {
+    const input = document.createElement("input");
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [file] });
+    input.value = "C:\\fakepath\\notes.txt";
+
+    expect(takeSelectedFile(input)).toBe(file);
+    expect(input.value).toBe("");
   });
 
   it("resolves the FileReader string result", async () => {

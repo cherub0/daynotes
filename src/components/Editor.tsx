@@ -19,6 +19,7 @@ import { LinkEditor, type EditorRange } from "./LinkEditor";
 import { TablePicker } from "./TablePicker";
 import {
   readImageAsDataUrl,
+  takeSelectedFile,
   validateImageFile,
 } from "./editor/imageFiles";
 
@@ -237,19 +238,17 @@ export function Editor({ content, onChange }: EditorProps) {
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = takeSelectedFile(e.target);
     if (!file) return;
     const validationError = validateImageFile(file);
     if (validationError === "not-image") return;
     if (validationError === "too-large") {
       window.alert(`图片文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），请选择小于 10MB 的图片`);
-      e.target.value = "";
       return;
     }
     void readImageAsDataUrl(file).then((src) => {
       editor.chain().focus().setImage({ src }).run();
     }).catch(() => undefined);
-    e.target.value = "";
   };
 
   const addLink = () => {
