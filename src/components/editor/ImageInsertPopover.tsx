@@ -33,7 +33,7 @@ export function ImageInsertPopover({ editor, open, onOpenChange }: ImageInsertPo
     }
     void readImageAsDataUrl(file)
       .then((src) => editor.chain().focus().setImage({ src }).run())
-      .catch(() => undefined);
+      .catch(() => window.alert("图片读取失败"));
   };
 
   return (

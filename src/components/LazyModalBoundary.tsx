@@ -70,21 +70,23 @@ class LazyModalErrorBoundary extends Component<LazyModalBoundaryProps, LazyModal
 export function createRetryableLazy<Props extends object>(
   loader: () => Promise<{ default: ComponentType<Props> }>,
 ) {
-  const componentsByRetryKey = new Map<number, Map<number, LazyExoticComponent<ComponentType<Props>>>>();
+  let slot: {
+    retryKey: number;
+    retryGeneration: number;
+    component: LazyExoticComponent<ComponentType<Props>>;
+  } | null = null;
 
   return function RetryableLazy({ retryKey, ...props }: Props & { retryKey: number }) {
     const retryGeneration = useContext(RetryGenerationContext);
-    let componentsByGeneration = componentsByRetryKey.get(retryKey);
-    if (!componentsByGeneration) {
-      componentsByGeneration = new Map();
-      componentsByRetryKey.set(retryKey, componentsByGeneration);
-    }
-    let LazyComponent = componentsByGeneration.get(retryGeneration);
-    if (!LazyComponent) {
-      LazyComponent = lazy(loader);
-      componentsByGeneration.set(retryGeneration, LazyComponent);
+    if (
+      slot === null ||
+      slot.retryKey !== retryKey ||
+      slot.retryGeneration !== retryGeneration
+    ) {
+      slot = { retryKey, retryGeneration, component: lazy(loader) };
     }
 
+    const LazyComponent = slot.component;
     return <LazyComponent {...props as Props} />;
   };
 }

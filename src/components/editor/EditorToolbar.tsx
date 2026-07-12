@@ -102,7 +102,6 @@ export function EditorToolbar({ editor }: EditorToolbarProps) {
         <button className={`toolbar-btn ${editor.isActive("orderedList") ? "active" : ""}`} onClick={() => editor.chain().focus().toggleOrderedList().run()} title="有序列表">1.</button>
         <button className={`toolbar-btn ${editor.isActive("taskList") ? "active" : ""}`} onClick={() => editor.chain().focus().toggleTaskList().run()} title="任务列表">☑</button>
         <button className={`toolbar-btn ${editor.isActive("blockquote") ? "active" : ""}`} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="引用">❝</button>
-        <button className="toolbar-btn" onClick={() => editor.chain().focus().setHorizontalRule().run()} title="水平分割线">―</button>
         <div className="toolbar-lang-group" ref={langPickerRef}>
           <button className={`toolbar-btn ${editor.isActive("codeBlock") ? "active" : ""}`} onClick={() => setShowLangPicker((value) => !value)} title="代码块">&lt;/&gt;</button>
           {showLangPicker && <CodeLanguagePicker editor={editor} onClose={() => setShowLangPicker(false)} />}

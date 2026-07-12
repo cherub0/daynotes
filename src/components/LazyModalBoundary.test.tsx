@@ -153,4 +153,37 @@ describe("LazyModalBoundary", () => {
     expect(await screen.findByText("重新打开成功")).not.toBeNull();
     expect(loader).toHaveBeenCalledTimes(2);
   });
+
+  it("does not reload a resolved modal on an unrelated rerender", async () => {
+    const loader = vi.fn(async () => ({ default: ({ label }: { label?: string }) => <div data-label={label}>稳定弹窗</div> }));
+    const RetryableModal = createRetryableLazy(loader);
+    const { rerender } = render(
+      <LazyModalBoundary onClose={() => undefined} retryKey={1}>
+        <RetryableModal retryKey={1} />
+      </LazyModalBoundary>,
+    );
+    expect(await screen.findByText("稳定弹窗")).not.toBeNull();
+
+    rerender(
+      <LazyModalBoundary onClose={() => undefined} retryKey={1}>
+        <RetryableModal retryKey={1} label="unrelated" />
+      </LazyModalBoundary>,
+    );
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retain lazy wrappers for historical retry keys", async () => {
+    const loader = vi.fn(async () => ({ default: () => <div>有界弹窗</div> }));
+    const RetryableModal = createRetryableLazy(loader);
+    const { rerender } = render(
+      <LazyModalBoundary onClose={() => undefined} retryKey={1}>
+        <RetryableModal retryKey={1} />
+      </LazyModalBoundary>,
+    );
+    await screen.findByText("有界弹窗");
+    rerender(<LazyModalBoundary onClose={() => undefined} retryKey={2}><RetryableModal retryKey={2} /></LazyModalBoundary>);
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+    rerender(<LazyModalBoundary onClose={() => undefined} retryKey={1}><RetryableModal retryKey={1} /></LazyModalBoundary>);
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(3));
+  });
 });

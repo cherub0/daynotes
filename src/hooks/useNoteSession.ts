@@ -33,6 +33,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
   const todosRef = useRef(todos);
   const dirtyRef = useRef(dirty);
   const loadGuardRef = useRef(createLatestRequestGuard());
+  const navigationGenerationRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const onErrorRef = useRef(onError);
@@ -145,6 +146,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
 
   const changeDate = useCallback(
     async (date: string) => {
+      const navigationGeneration = ++navigationGenerationRef.current;
       clearSaveTimer();
       if (dirtyRef.current) {
         await saveSnapshot(
@@ -153,6 +155,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
           JSON.stringify(todosRef.current),
         );
       }
+      if (navigationGeneration !== navigationGenerationRef.current) return;
       currentDateRef.current = date;
       setCurrentDate(date);
     },

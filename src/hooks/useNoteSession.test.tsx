@@ -149,6 +149,36 @@ describe("useNoteSession loading", () => {
     expect(api.saveNote).toHaveBeenCalledWith("2026-07-11", "<p>edited</p>", "[]");
   });
 
+  it("only lets the newest navigation continue when overlapping saves resolve out of order", async () => {
+    const firstSave = deferred<void>();
+    const secondSave = deferred<void>();
+    vi.mocked(api.getNote).mockImplementation(async (date) => note(date, `<p>${date}</p>`));
+    vi.mocked(api.saveNote)
+      .mockReturnValueOnce(firstSave.promise)
+      .mockReturnValueOnce(secondSave.promise);
+
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-11", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.content).toBe("<p>2026-07-11</p>"));
+    act(() => result.current.setContent("<p>dirty A</p>"));
+
+    let navigateToB!: Promise<void>;
+    let navigateToC!: Promise<void>;
+    act(() => {
+      navigateToB = result.current.changeDate("2026-07-12");
+      navigateToC = result.current.changeDate("2026-07-13");
+    });
+    secondSave.resolve();
+    await act(async () => navigateToC);
+    firstSave.resolve();
+    await act(async () => navigateToB);
+
+    await waitFor(() => expect(result.current.currentDate).toBe("2026-07-13"));
+    expect(api.getNote).toHaveBeenCalledWith("2026-07-13");
+    expect(api.getNote).not.toHaveBeenCalledWith("2026-07-12");
+  });
+
   it("flushes dirty content on unmount", async () => {
     vi.mocked(api.getNote).mockResolvedValue(note("2026-07-11", "<p>start</p>"));
     vi.mocked(api.saveNote).mockResolvedValue();

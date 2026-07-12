@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { attachBrowserErrorListeners } from "./verify-browser-errors.mjs";
 
 const root = process.cwd();
 const outputDir = path.join(root, "verify-output");
@@ -56,6 +57,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const consoleMessages = [];
   page.on("console", (message) => consoleMessages.push(`[${message.type()}] ${message.text()}`));
+  attachBrowserErrorListeners(page, consoleMessages);
   await page.route("http://daynotes.local/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
