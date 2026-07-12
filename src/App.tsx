@@ -1,245 +1,101 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getToday, getPrevDate, getNextDate, parseTodos } from "./lib/types";
-import type { Note, AppSettings, TodoItem } from "./lib/types";
-import * as api from "./lib/tauri";
-import { createLatestRequestGuard } from "./lib/latestRequest";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DateHeader } from "./components/DateHeader";
 import { Editor } from "./components/Editor";
-import { TodoPanel } from "./components/TodoPanel";
-import { ShareModal } from "./components/ShareModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { ShareModal } from "./components/ShareModal";
+import { TodoPanel } from "./components/TodoPanel";
+import { useNoteSession } from "./hooks/useNoteSession";
+import * as api from "./lib/tauri";
+import { getNextDate, getPrevDate, getToday } from "./lib/types";
+import type { AppSettings } from "./lib/types";
 import "./App.css";
 
 export default function App() {
-  const [currentDate, setCurrentDate] = useState(getToday());
-  const [, setNote] = useState<Note | null>(null);
-  const [content, setContent] = useState("");
-  const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [noteDates, setNoteDates] = useState<Set<string>>(new Set());
+  const showToastRef = useRef<(message: string) => void>(() => undefined);
+  const session = useNoteSession({
+    initialDate: getToday(),
+    onError: (message) => showToastRef.current(message),
+  });
+  const { currentDate, content, todos, noteDates, changeDate, saveNow, setContent, setTodos } = session;
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [showShare, setShowShare] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const contentRef = useRef(content);
-  const todosRef = useRef(todos);
-  const dateRef = useRef(currentDate);
-  const dirtyRef = useRef(dirty);
-  const loadRequestGuard = useRef(createLatestRequestGuard());
 
-  // Keep refs in sync
-  contentRef.current = content;
-  todosRef.current = todos;
-  dateRef.current = currentDate;
-  dirtyRef.current = dirty;
-
-  // ── Init ──
-
-  useEffect(() => {
-    loadSettings();
-    loadNoteDates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 2_000);
   }, []);
+  showToastRef.current = showToast;
 
-  // Load note when date changes
-  useEffect(() => {
-    loadNote(currentDate);
-  }, [currentDate]);
-
-  // Auto-save: 2s after last change
-  const scheduleSave = useCallback(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      doSave();
-    }, 2000);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Clean up save timer on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) {
-        doSaveNow();
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Data ──
-
-  async function loadSettings() {
-    try {
-      const s = await api.getSettings();
-      setSettings(s);
-      applyTheme(s.theme);
-    } catch (e) {
-      console.error("Failed to load settings:", e);
-    }
-  }
-
-  async function loadNoteDates() {
-    try {
-      const dates = await api.getNotesDates();
-      setNoteDates(new Set(dates));
-    } catch (e) {
-      console.error("Failed to load note dates:", e);
-    }
-  }
-
-  async function loadNote(date: string) {
-    const requestToken = loadRequestGuard.current.begin();
-    try {
-      const n = await api.getNote(date);
-      if (!loadRequestGuard.current.isLatest(requestToken)) return;
-      setNote(n);
-      setContent(n?.content || "");
-      setTodos(parseTodos(n?.todos || "[]"));
-      dirtyRef.current = false;
-      setDirty(false);
-    } catch (e) {
-      if (!loadRequestGuard.current.isLatest(requestToken)) return;
-      console.error("Failed to load note:", e);
-      setNote(null);
-      setContent("");
-      setTodos([]);
-      dirtyRef.current = false;
-      setDirty(false);
-    }
-  }
-
-  async function doSave() {
-    if (!dirtyRef.current) return;
-    await doSaveNow();
-  }
-
-  async function doSaveNow(
-    dateSnapshot = dateRef.current,
-    contentSnapshot = contentRef.current,
-    todosSnapshot = todosRef.current,
-  ) {
-    const todosJson = JSON.stringify(todosSnapshot);
-    try {
-      await api.saveNote(dateSnapshot, contentSnapshot, todosJson);
-      if (
-        dateRef.current === dateSnapshot &&
-        contentRef.current === contentSnapshot &&
-        JSON.stringify(todosRef.current) === todosJson
-      ) {
-        dirtyRef.current = false;
-        setDirty(false);
-      }
-      // Refresh note dates
-      const dates = await api.getNotesDates();
-      setNoteDates(new Set(dates));
-    } catch (e) {
-      console.error("Failed to save:", e);
-      showToast("保存失败");
-    }
-  }
-
-  // ── Navigation ──
-
-  async function changeDate(nextDate: string) {
-    const previousDate = dateRef.current;
-    if (nextDate === previousDate) return;
-
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = undefined;
-    }
-
-    if (dirtyRef.current) {
-      await doSaveNow(previousDate, contentRef.current, todosRef.current);
-    }
-
-    setCurrentDate(nextDate);
-  }
-
-  function goToPrevDay() {
-    void changeDate(getPrevDate(dateRef.current));
-  }
-
-  function goToNextDay() {
-    void changeDate(getNextDate(dateRef.current));
-  }
-
-  function goToToday() {
-    void changeDate(getToday());
-  }
-
-  function goToDate(date: string) {
-    void changeDate(date);
-  }
-
-  // ── Keyboard shortcuts ──
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.ctrlKey && e.key === "ArrowLeft") {
-        e.preventDefault();
-        goToPrevDay();
-      } else if (e.ctrlKey && e.key === "ArrowRight") {
-        e.preventDefault();
-        goToNextDay();
-      } else if (e.ctrlKey && e.key === "s") {
-        e.preventDefault();
-        doSaveNow().then(() => showToast("已保存"));
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Handlers ──
-
-  function handleContentChange(html: string) {
-    setContent(html);
-    dirtyRef.current = true;
-    setDirty(true);
-    scheduleSave();
-  }
-
-  function handleTodosChange(newTodos: TodoItem[]) {
-    setTodos(newTodos);
-    dirtyRef.current = true;
-    setDirty(true);
-    scheduleSave();
-  }
-
-  function handleSettingsSave(newSettings: AppSettings) {
-    setSettings(newSettings);
-    applyTheme(newSettings.theme);
-    api.saveSettings(newSettings);
-    setShowSettings(false);
-    showToast("设置已保存");
-  }
-
-  function applyTheme(theme: string) {
+  const applyTheme = useCallback((theme: string) => {
     if (theme === "dark") {
       document.documentElement.setAttribute("data-theme", "dark");
     } else if (theme === "light") {
       document.documentElement.removeAttribute("data-theme");
     } else {
-      // system
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
     }
-  }
+  }, []);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+  useEffect(() => {
+    void api.getSettings()
+      .then((loadedSettings) => {
+        setSettings(loadedSettings);
+        applyTheme(loadedSettings.theme);
+      })
+      .catch((error) => console.error("Failed to load settings:", error));
+  }, [applyTheme]);
+
+  const goToPrevDay = useCallback(() => {
+    void changeDate(getPrevDate(currentDate));
+  }, [changeDate, currentDate]);
+
+  const goToNextDay = useCallback(() => {
+    void changeDate(getNextDate(currentDate));
+  }, [changeDate, currentDate]);
+
+  const goToToday = useCallback(() => {
+    void changeDate(getToday());
+  }, [changeDate]);
+
+  const goToDate = useCallback((date: string) => {
+    void changeDate(date);
+  }, [changeDate]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.ctrlKey && event.key === "ArrowLeft") {
+        event.preventDefault();
+        goToPrevDay();
+      } else if (event.ctrlKey && event.key === "ArrowRight") {
+        event.preventDefault();
+        goToNextDay();
+      } else if (event.ctrlKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveNow().then((saved) => {
+          if (saved) showToast("已保存");
+        });
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [goToNextDay, goToPrevDay, saveNow, showToast]);
+
+  function handleSettingsSave(newSettings: AppSettings) {
+    setSettings(newSettings);
+    applyTheme(newSettings.theme);
+    void api.saveSettings(newSettings);
+    setShowSettings(false);
+    showToast("设置已保存");
   }
 
   function handleSendEmail() {
-    api.sendDailyEmail()
-      .then((msg) => showToast(msg))
-      .catch((e) => showToast("发送失败: " + e));
+    void api.sendDailyEmail()
+      .then((message) => showToast(message))
+      .catch((error) => showToast(`发送失败: ${error}`));
   }
-
-  // ── Render ──
 
   return (
     <div className="app-container">
@@ -258,9 +114,9 @@ export default function App() {
 
       <div className="main-content">
         <div className="editor-pane">
-          <Editor content={content} onChange={handleContentChange} />
+          <Editor content={content} onChange={setContent} />
         </div>
-        <TodoPanel todos={todos} onChange={handleTodosChange} />
+        <TodoPanel todos={todos} onChange={setTodos} />
       </div>
 
       {showShare && (
