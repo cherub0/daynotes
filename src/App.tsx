@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getToday, getPrevDate, getNextDate, parseTodos } from "./lib/types";
 import type { Note, AppSettings, TodoItem } from "./lib/types";
 import * as api from "./lib/tauri";
+import { createLatestRequestGuard } from "./lib/latestRequest";
 import { DateHeader } from "./components/DateHeader";
 import { Editor } from "./components/Editor";
 import { TodoPanel } from "./components/TodoPanel";
@@ -25,6 +26,7 @@ export default function App() {
   const todosRef = useRef(todos);
   const dateRef = useRef(currentDate);
   const dirtyRef = useRef(dirty);
+  const loadRequestGuard = useRef(createLatestRequestGuard());
 
   // Keep refs in sync
   contentRef.current = content;
@@ -37,7 +39,6 @@ export default function App() {
   useEffect(() => {
     loadSettings();
     loadNoteDates();
-    loadNote(currentDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -87,14 +88,17 @@ export default function App() {
   }
 
   async function loadNote(date: string) {
+    const requestToken = loadRequestGuard.current.begin();
     try {
       const n = await api.getNote(date);
+      if (!loadRequestGuard.current.isLatest(requestToken)) return;
       setNote(n);
       setContent(n?.content || "");
       setTodos(parseTodos(n?.todos || "[]"));
       dirtyRef.current = false;
       setDirty(false);
     } catch (e) {
+      if (!loadRequestGuard.current.isLatest(requestToken)) return;
       console.error("Failed to load note:", e);
       setNote(null);
       setContent("");

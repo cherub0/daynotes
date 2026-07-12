@@ -578,7 +578,7 @@ pub fn run() {
             write_binary_file,
             read_binary_file,
             export_zip::export_markdown_zip,
-            export_pdf::export_pdf,
+            export_pdf::export_pdf_pages,
             email::test_email_settings,
         ])
         .run(tauri::generate_context!())

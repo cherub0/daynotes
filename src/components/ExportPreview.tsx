@@ -48,11 +48,16 @@ export function ExportPreview({ document, previewRef }: ExportPreviewProps) {
             const items = block.items.map((item, itemIndex) => <li key={itemIndex}><InlineContent content={item} /></li>);
             return block.ordered ? <ol key={index}>{items}</ol> : <ul key={index}>{items}</ul>;
           }
+          case "tasklist": return (
+            <ul key={index} className="export-task-list">{block.items.map((item, itemIndex) => (
+              <li key={itemIndex} className={item.checked ? "done" : ""}>{item.checked ? "☑" : "☐"} <InlineContent content={item.content} /></li>
+            ))}</ul>
+          );
           case "table": return (
             <table key={index}><tbody>{block.rows.map((row, rowIndex) => (
               <tr key={rowIndex}>{row.map((cell, cellIndex) => block.header && rowIndex === 0
-                ? <th key={cellIndex}>{cell}</th>
-                : <td key={cellIndex}>{cell}</td>)}</tr>
+                ? <th key={cellIndex}><InlineContent content={cell} /></th>
+                : <td key={cellIndex}><InlineContent content={cell} /></td>)}</tr>
             ))}</tbody></table>
           );
           case "image": {

@@ -20,13 +20,19 @@ export interface ExportImage {
   filename: string;
 }
 
+export interface ExportTaskItem {
+  content: ExportInline[];
+  checked: boolean;
+}
+
 export type ExportBlock =
   | { kind: "heading"; level: number; content: ExportInline[] }
   | { kind: "paragraph"; content: ExportInline[] }
   | { kind: "list"; ordered: boolean; items: ExportInline[][] }
   | { kind: "quote"; content: ExportInline[] }
   | { kind: "code"; language: string; text: string }
-  | { kind: "table"; rows: string[][]; header: boolean }
+  | { kind: "table"; rows: ExportInline[][][]; header: boolean }
+  | { kind: "tasklist"; items: ExportTaskItem[] }
   | { kind: "rule" }
   | { kind: "image"; imageId: string; alt: string }
   | { kind: "todos"; items: TodoItem[] };
@@ -163,12 +169,20 @@ export function parseExportDocument(date: string, html: string, todos: TodoItem[
       blocks.push({ kind: "code", language, text: code?.textContent || node.textContent || "" });
     } else if (tag === "table") {
       const rows = Array.from(node.querySelectorAll(":scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr, :scope > tr")).map((row) =>
-        Array.from(row.querySelectorAll(":scope > th, :scope > td")).map(textOf),
+        Array.from(row.querySelectorAll(":scope > th, :scope > td")).map((cell) => parseInline(cell)),
       );
       blocks.push({ kind: "table", rows, header: Boolean(node.querySelector("th")) });
     } else if (tag === "ul" || tag === "ol") {
-      const items = Array.from(node.querySelectorAll(":scope > li")).map((item) => parseInline(item));
-      blocks.push({ kind: "list", ordered: tag === "ol", items });
+      if (tag === "ul" && node.getAttribute("data-type") === "taskList") {
+        const items = Array.from(node.querySelectorAll(":scope > li")).map((item) => ({
+          content: parseInline(item.querySelector(":scope > div") || item),
+          checked: item.getAttribute("data-checked") === "true",
+        }));
+        blocks.push({ kind: "tasklist", items });
+      } else {
+        const items = Array.from(node.querySelectorAll(":scope > li")).map((item) => parseInline(item));
+        blocks.push({ kind: "list", ordered: tag === "ol", items });
+      }
     } else if (tag === "hr") {
       blocks.push({ kind: "rule" });
     } else if (tag === "img") {
@@ -196,6 +210,8 @@ function renderInline(content: ExportInline[]): string {
     if (run.bold) value = `**${value}**`;
     if (run.italic) value = `*${value}*`;
     if (run.strike) value = `~~${value}~~`;
+    if (run.underline) value = `<u>${value}</u>`;
+    if (run.highlight) value = `<mark>${value}</mark>`;
     if (run.href) value = `[${value}](${run.href})`;
     return value;
   }).join("");
@@ -233,11 +249,14 @@ export function renderMarkdown(document: ExportDocument): MarkdownExport {
           ).join("\n"),
         );
         break;
+      case "tasklist":
+        segments.push(block.items.map((item) => `- [${item.checked ? "x" : " "}] ${renderInline(item.content)}`).join("\n"));
+        break;
       case "table": {
         if (!block.rows.length) break;
         const width = Math.max(...block.rows.map((row) => row.length));
         const normalized = block.rows.map((row) =>
-          Array.from({ length: width }, (_, i) => escapeTableCell(row[i] || "")),
+          Array.from({ length: width }, (_, i) => escapeTableCell(renderInline(row[i] || []))),
         );
         const tableLines = [
           `| ${normalized[0].join(" | ")} |`,
@@ -312,14 +331,16 @@ export function renderPrintHtml(document: ExportDocument): string {
         return block.ordered
           ? `<ol>${block.items.map((item) => `<li>${renderHtmlInline(item)}</li>`).join("")}</ol>`
           : `<ul>${block.items.map((item) => `<li>${renderHtmlInline(item)}</li>`).join("")}</ul>`;
+      case "tasklist":
+        return `<ul class="task-list">${block.items.map((item) => `<li>${item.checked ? "☑" : "☐"} ${renderHtmlInline(item.content)}</li>`).join("")}</ul>`;
       case "table": {
         if (!block.rows.length) return "";
         const headerHtml = block.header && block.rows.length > 0
-          ? `<thead><tr>${block.rows[0].map((cell) => `<th>${cell.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</th>`).join("")}</tr></thead>`
+          ? `<thead><tr>${block.rows[0].map((cell) => `<th>${renderHtmlInline(cell)}</th>`).join("")}</tr></thead>`
           : "";
         const bodyRows = block.header ? block.rows.slice(1) : block.rows;
         const bodyHtml = `<tbody>${bodyRows.map((row) =>
-          `<tr>${row.map((cell) => `<td>${cell.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</td>`).join("")}</tr>`
+          `<tr>${row.map((cell) => `<td>${renderHtmlInline(cell)}</td>`).join("")}</tr>`
         ).join("")}</tbody>`;
         return `<table>${headerHtml}${bodyHtml}</table>`;
       }

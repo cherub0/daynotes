@@ -59,4 +59,24 @@ describe("export document", () => {
     expect(output.images).toHaveLength(1);
     expect(output.images[0].kind).toBe("remote");
   });
+
+  it("preserves every editable style in Markdown", () => {
+    const doc = parseExportDocument(
+      "2026-07-12",
+      `<h1>一级标题</h1><h2>二级标题</h2><h3>三级标题</h3>
+       <p><strong>粗体</strong><em>斜体</em><u>下划线</u><s>删除线</s><mark>高亮</mark><code>代码</code><a href="https://example.com">链接</a></p>
+       <ul data-type="taskList"><li data-type="taskItem" data-checked="true"><div><p>已完成任务</p></div></li><li data-type="taskItem" data-checked="false"><div><p>未完成任务</p></div></li></ul>
+       <blockquote><p>引用内容</p></blockquote><pre><code class="language-ts">const value = 1;</code></pre>
+       <table><tbody><tr><th><strong>粗体表头</strong></th><th>列二</th></tr><tr><td><a href="https://example.com/cell">单元格链接</a></td><td>值</td></tr></tbody></table>`,
+      [],
+    );
+
+    const markdown = renderMarkdown(doc).markdown;
+    expect(markdown).toContain("<u>下划线</u>");
+    expect(markdown).toContain("<mark>高亮</mark>");
+    expect(markdown).toContain("- [x] 已完成任务");
+    expect(markdown).toContain("- [ ] 未完成任务");
+    expect(markdown).toContain("**粗体表头**");
+    expect(markdown).toContain("[单元格链接](https://example.com/cell)");
+  });
 });

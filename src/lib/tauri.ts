@@ -20,25 +20,10 @@ export async function exportMarkdownZip(
   return invoke("export_markdown_zip", { path, markdownName, markdown, images });
 }
 
-export interface PdfImagePayload {
-  id: string;
-  bytes: number[];
-  width: number;
-  height: number;
-}
-
 export interface PdfExportResult {
   path: string;
   pages: number;
   orientation: "portrait" | "landscape";
-}
-
-export async function exportPdf(
-  path: string,
-  document: import("./exportDocument").ExportDocument,
-  images: PdfImagePayload[],
-): Promise<PdfExportResult> {
-  return invoke("export_pdf", { path, document, images });
 }
 
 // ── Note CRUD ───────────────────────────────────────────────────
@@ -87,4 +72,8 @@ export async function readBinaryFile(path: string): Promise<number[]> {
 
 export async function writeBinaryFile(path: string, contents: number[]): Promise<void> {
   return invoke("write_binary_file", { path, contents });
+}
+
+export async function exportPdfPages(path: string, date: string, pages: number[][]): Promise<PdfExportResult> {
+  return invoke("export_pdf_pages", { path, date, pages });
 }

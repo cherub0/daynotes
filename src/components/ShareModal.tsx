@@ -4,7 +4,8 @@ import { formatDateDisplay } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { save } from "@tauri-apps/plugin-dialog";
 import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/exportDocument";
-import { exportMarkdownZip, exportPdf, readBinaryFile, writeBinaryFile, type ExportImagePayload, type PdfImagePayload } from "../lib/tauri";
+import { exportMarkdownZip, exportPdfPages, readBinaryFile, writeBinaryFile, type ExportImagePayload } from "../lib/tauri";
+import { renderPdfPages } from "../lib/pdfPages";
 import { ExportPreview } from "./ExportPreview";
 
 async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
@@ -124,20 +125,11 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         defaultPath: `DayNotes-${currentDate}.pdf`,
         filters: [{ name: "PDF 文档", extensions: ["pdf"] }],
       });
-      if (!path) { setExporting(false); return; }
+      if (!path) return;
 
-      const document = parseExportDocument(currentDate, content, todos);
-      const pdfImages: PdfImagePayload[] = [];
-      for (const image of document.images) {
-        const bytes = await loadExportImage(image).catch(() => null);
-        if (!bytes) continue;
-        const blob = new Blob([bytes]);
-        const bitmap = await createImageBitmap(blob);
-        pdfImages.push({ id: image.id, bytes: Array.from(bytes), width: bitmap.width, height: bitmap.height });
-        bitmap.close();
-      }
-
-      const result = await exportPdf(path, document, pdfImages);
+      if (!previewRef.current) throw new Error("PDF 预览尚未就绪");
+      const pages = await renderPdfPages(previewRef.current);
+      const result = await exportPdfPages(path, currentDate, pages.map((page) => Array.from(page)));
       onToast(`已导出 PDF：${result.path}`);
     } catch (error) {
       onToast(`PDF 导出失败：${String(error)}`);

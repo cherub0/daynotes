@@ -63,6 +63,7 @@ export function Editor({ content, onChange }: EditorProps) {
       Highlight.configure({ multicolor: true }),
       Link.configure({
         openOnClick: false,
+        protocols: ["http", "https", "file"],
         HTMLAttributes: {
           target: "_blank",
           rel: "noopener noreferrer",
