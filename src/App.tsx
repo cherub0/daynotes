@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, useCallback, useEffect, useRef, useState } from "react";
 import { DateHeader } from "./components/DateHeader";
 import { Editor } from "./components/Editor";
-import { SettingsModal } from "./components/SettingsModal";
-import { ShareModal } from "./components/ShareModal";
+import { LazyModalBoundary } from "./components/LazyModalBoundary";
 import { TodoPanel } from "./components/TodoPanel";
 import { useNoteSession } from "./hooks/useNoteSession";
 import * as api from "./lib/tauri";
 import { getNextDate, getPrevDate, getToday } from "./lib/types";
 import type { AppSettings } from "./lib/types";
 import "./App.css";
+
+const LazyShareModal = lazy(() => import("./components/ShareModal"));
+const LazySettingsModal = lazy(() => import("./components/SettingsModal"));
 
 export default function App() {
   const showToastRef = useRef<(message: string) => void>(() => undefined);
@@ -20,6 +22,8 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [showShare, setShowShare] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [shareRetryKey, setShareRetryKey] = useState(0);
+  const [settingsRetryKey, setSettingsRetryKey] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = useCallback((message: string) => {
@@ -107,8 +111,14 @@ export default function App() {
         onNext={goToNextDay}
         onToday={goToToday}
         onSelectDate={goToDate}
-        onShare={() => setShowShare(true)}
-        onSettings={() => setShowSettings(true)}
+        onShare={() => {
+          setShareRetryKey((key) => key + 1);
+          setShowShare(true);
+        }}
+        onSettings={() => {
+          setSettingsRetryKey((key) => key + 1);
+          setShowSettings(true);
+        }}
         onSendEmail={handleSendEmail}
       />
 
@@ -120,21 +130,31 @@ export default function App() {
       </div>
 
       {showShare && (
-        <ShareModal
-          currentDate={currentDate}
-          content={content}
-          todos={todos}
+        <LazyModalBoundary
           onClose={() => setShowShare(false)}
-          onToast={showToast}
-        />
+          retryKey={shareRetryKey}
+        >
+          <LazyShareModal
+            currentDate={currentDate}
+            content={content}
+            todos={todos}
+            onClose={() => setShowShare(false)}
+            onToast={showToast}
+          />
+        </LazyModalBoundary>
       )}
 
       {showSettings && (
-        <SettingsModal
-          settings={settings}
-          onSave={handleSettingsSave}
+        <LazyModalBoundary
           onClose={() => setShowSettings(false)}
-        />
+          retryKey={settingsRetryKey}
+        >
+          <LazySettingsModal
+            settings={settings}
+            onSave={handleSettingsSave}
+            onClose={() => setShowSettings(false)}
+          />
+        </LazyModalBoundary>
       )}
 
       {toast && <div className="toast">{toast}</div>}

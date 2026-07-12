@@ -251,3 +251,5 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
     </div>
   );
 }
+
+export default SettingsModal;
