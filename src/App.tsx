@@ -1,7 +1,7 @@
-import { lazy, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DateHeader } from "./components/DateHeader";
 import { Editor } from "./components/Editor";
-import { LazyModalBoundary } from "./components/LazyModalBoundary";
+import { createRetryableLazy, LazyModalBoundary } from "./components/LazyModalBoundary";
 import { TodoPanel } from "./components/TodoPanel";
 import { useNoteSession } from "./hooks/useNoteSession";
 import * as api from "./lib/tauri";
@@ -9,8 +9,8 @@ import { getNextDate, getPrevDate, getToday } from "./lib/types";
 import type { AppSettings } from "./lib/types";
 import "./App.css";
 
-const LazyShareModal = lazy(() => import("./components/ShareModal"));
-const LazySettingsModal = lazy(() => import("./components/SettingsModal"));
+const LazyShareModal = createRetryableLazy(() => import("./components/ShareModal"));
+const LazySettingsModal = createRetryableLazy(() => import("./components/SettingsModal"));
 
 export default function App() {
   const showToastRef = useRef<(message: string) => void>(() => undefined);
@@ -135,6 +135,7 @@ export default function App() {
           retryKey={shareRetryKey}
         >
           <LazyShareModal
+            retryKey={shareRetryKey}
             currentDate={currentDate}
             content={content}
             todos={todos}
@@ -150,6 +151,7 @@ export default function App() {
           retryKey={settingsRetryKey}
         >
           <LazySettingsModal
+            retryKey={settingsRetryKey}
             settings={settings}
             onSave={handleSettingsSave}
             onClose={() => setShowSettings(false)}

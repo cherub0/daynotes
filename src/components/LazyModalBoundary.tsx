@@ -1,5 +1,5 @@
-import { Component, Suspense } from "react";
-import type { ErrorInfo, ReactNode } from "react";
+import { Component, createContext, lazy, Suspense, useContext } from "react";
+import type { ComponentType, ErrorInfo, LazyExoticComponent, ReactNode } from "react";
 
 interface LazyModalBoundaryProps {
   children: ReactNode;
@@ -9,12 +9,15 @@ interface LazyModalBoundaryProps {
 
 interface LazyModalErrorBoundaryState {
   hasError: boolean;
+  retryGeneration: number;
 }
 
-class LazyModalErrorBoundary extends Component<LazyModalBoundaryProps, LazyModalErrorBoundaryState> {
-  state: LazyModalErrorBoundaryState = { hasError: false };
+const RetryGenerationContext = createContext(0);
 
-  static getDerivedStateFromError(): LazyModalErrorBoundaryState {
+class LazyModalErrorBoundary extends Component<LazyModalBoundaryProps, LazyModalErrorBoundaryState> {
+  state: LazyModalErrorBoundaryState = { hasError: false, retryGeneration: 0 };
+
+  static getDerivedStateFromError(): Partial<LazyModalErrorBoundaryState> {
     return { hasError: true };
   }
 
@@ -24,12 +27,18 @@ class LazyModalErrorBoundary extends Component<LazyModalBoundaryProps, LazyModal
 
   componentDidUpdate(previousProps: LazyModalBoundaryProps) {
     if (this.state.hasError && previousProps.retryKey !== this.props.retryKey) {
-      this.setState({ hasError: false });
+      this.setState((state) => ({
+        hasError: false,
+        retryGeneration: state.retryGeneration + 1,
+      }));
     }
   }
 
   private retry = () => {
-    this.setState({ hasError: false });
+    this.setState((state) => ({
+      hasError: false,
+      retryGeneration: state.retryGeneration + 1,
+    }));
   };
 
   render() {
@@ -48,8 +57,36 @@ class LazyModalErrorBoundary extends Component<LazyModalBoundaryProps, LazyModal
       );
     }
 
-    return this.props.children;
+    return (
+      <RetryGenerationContext value={this.state.retryGeneration}>
+        {this.props.children}
+      </RetryGenerationContext>
+    );
   }
+}
+
+// The factory is intentionally colocated with the boundary because they share retry context.
+// eslint-disable-next-line react-refresh/only-export-components
+export function createRetryableLazy<Props extends object>(
+  loader: () => Promise<{ default: ComponentType<Props> }>,
+) {
+  const componentsByRetryKey = new Map<number, Map<number, LazyExoticComponent<ComponentType<Props>>>>();
+
+  return function RetryableLazy({ retryKey, ...props }: Props & { retryKey: number }) {
+    const retryGeneration = useContext(RetryGenerationContext);
+    let componentsByGeneration = componentsByRetryKey.get(retryKey);
+    if (!componentsByGeneration) {
+      componentsByGeneration = new Map();
+      componentsByRetryKey.set(retryKey, componentsByGeneration);
+    }
+    let LazyComponent = componentsByGeneration.get(retryGeneration);
+    if (!LazyComponent) {
+      LazyComponent = lazy(loader);
+      componentsByGeneration.set(retryGeneration, LazyComponent);
+    }
+
+    return <LazyComponent {...props as Props} />;
+  };
 }
 
 export function LazyModalBoundary(props: LazyModalBoundaryProps) {
