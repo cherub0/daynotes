@@ -48,6 +48,17 @@ function createEditor() {
 }
 
 describe("EditorToolbar table popover", () => {
+  it("keeps the local image file input mounted after opening the system picker", () => {
+    const { editor } = createEditor();
+    const { container } = render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "插入图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "📁 本地文件…" }));
+
+    expect(container.querySelector('input[type="file"]')).not.toBeNull();
+  });
+
   it("inserts the selected table size with a header row", () => {
     const { editor, insertTable } = createEditor();
     render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);

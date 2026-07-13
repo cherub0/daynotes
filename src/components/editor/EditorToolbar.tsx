@@ -162,11 +162,9 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
           </div>
         )}
         {showLinkEditor && <LinkEditor editor={editor} initialRange={linkRange} onClose={() => setShowLinkEditor(false)} />}
-        {showImagePicker && (
-          <div className="toolbar-detached-image">
-            <ImageInsertPopover editor={editor} open onOpenChange={setShowImagePicker} />
-          </div>
-        )}
+        <div className="toolbar-detached-image">
+          <ImageInsertPopover editor={editor} open={showImagePicker} onOpenChange={setShowImagePicker} />
+        </div>
         {showTablePicker && <TablePicker maxRows={20} maxCols={20} onSelect={addTable} onClose={() => setShowTablePicker(false)} />}
       </div>
     </>

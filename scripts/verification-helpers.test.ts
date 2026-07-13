@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { verifyBundleManifest } from "./verify-bundle-size.mjs";
 import { attachBrowserErrorListeners } from "./verify-browser-errors.mjs";
+import { assertRequiredUiScreenshots, REQUIRED_UI_SCREENSHOTS } from "./verify-evidence.mjs";
 
 const temporaryDirectories: string[] = [];
 
@@ -52,5 +53,32 @@ describe("complete UI browser error evidence", () => {
 
     page.emit("pageerror", new Error("bootstrap crashed"));
     expect(messages).toEqual(["[error] bootstrap crashed"]);
+  });
+});
+
+describe("complete UI visual evidence", () => {
+  it.each(REQUIRED_UI_SCREENSHOTS)("rejects evidence missing %s", async (missingPath) => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-evidence-"));
+    temporaryDirectories.push(outputDir);
+    for (const relativePath of REQUIRED_UI_SCREENSHOTS) {
+      if (relativePath === missingPath) continue;
+      const absolutePath = path.join(outputDir, relativePath);
+      await mkdir(path.dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, "screenshot");
+    }
+
+    await expect(assertRequiredUiScreenshots(outputDir)).rejects.toThrow(missingPath);
+  });
+
+  it("defines semantic surface and focus tokens in both themes plus reduced motion", async () => {
+    const css = await import("node:fs/promises").then(({ readFile }) => readFile(path.join(process.cwd(), "src/index.css"), "utf8"));
+    const lightTheme = css.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+    const darkTheme = css.match(/\[data-theme=["']dark["']\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+
+    for (const token of ["--surface-app", "--surface-paper", "--focus-ring"]) {
+      expect(lightTheme).toContain(`${token}:`);
+      expect(darkTheme).toContain(`${token}:`);
+    }
+    expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   });
 });
