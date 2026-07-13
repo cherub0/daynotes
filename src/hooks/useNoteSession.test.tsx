@@ -88,7 +88,7 @@ describe("useNoteSession loading", () => {
     expect(result.current.saveStatus).toBe("dirty");
   });
 
-  it("ignores an older successful save after the latest snapshot is saved", async () => {
+  it("keeps the latest UI state when serialized saves both succeed", async () => {
     const firstSave = deferred<void>();
     const secondSave = deferred<void>();
     vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));
@@ -106,18 +106,46 @@ describe("useNoteSession loading", () => {
     act(() => result.current.setContent("<p>second</p>"));
     let savingSecond!: Promise<boolean>;
     act(() => { savingSecond = result.current.saveNow(); });
+    firstSave.resolve();
+    await act(async () => savingFirst);
+    await waitFor(() => expect(api.saveNote).toHaveBeenCalledTimes(2));
     secondSave.resolve();
     await act(async () => savingSecond);
     expect(result.current.saveStatus).toBe("saved");
     expect(result.current.dirty).toBe(false);
-
-    firstSave.resolve();
-    await act(async () => savingFirst);
-    expect(result.current.saveStatus).toBe("saved");
-    expect(result.current.dirty).toBe(false);
   });
 
-  it("ignores an older failed save after the latest snapshot is saved", async () => {
+  it("persists the latest snapshot when saves would otherwise finish out of order", async () => {
+    const firstSave = deferred<void>();
+    const latestSave = deferred<void>();
+    let storedContent = "";
+    vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));
+    vi.mocked(api.saveNote).mockImplementation((_date, html) => {
+      const pending = html === "<p>first</p>" ? firstSave : latestSave;
+      return pending.promise.then(() => {
+        storedContent = html;
+      });
+    });
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("ready"));
+
+    act(() => result.current.setContent("<p>first</p>"));
+    let savingFirst!: Promise<boolean>;
+    act(() => { savingFirst = result.current.saveNow(); });
+    act(() => result.current.setContent("<p>latest</p>"));
+    let savingLatest!: Promise<boolean>;
+    act(() => { savingLatest = result.current.saveNow(); });
+
+    latestSave.resolve();
+    firstSave.resolve();
+    await act(async () => Promise.all([savingFirst, savingLatest]));
+
+    expect(storedContent).toBe("<p>latest</p>");
+  });
+
+  it("continues with the latest serialized save after an older save fails", async () => {
     const firstSave = deferred<void>();
     const secondSave = deferred<void>();
     const onError = vi.fn();
@@ -136,11 +164,11 @@ describe("useNoteSession loading", () => {
     act(() => result.current.setContent("<p>second</p>"));
     let savingSecond!: Promise<boolean>;
     act(() => { savingSecond = result.current.saveNow(); });
-    secondSave.resolve();
-    await act(async () => savingSecond);
-
     firstSave.reject(new Error("older save failed"));
     await act(async () => savingFirst);
+    await waitFor(() => expect(api.saveNote).toHaveBeenCalledTimes(2));
+    secondSave.resolve();
+    await act(async () => savingSecond);
     expect(result.current.saveStatus).toBe("saved");
     expect(result.current.dirty).toBe(false);
     expect(onError).not.toHaveBeenCalledWith("保存失败");
@@ -199,7 +227,7 @@ describe("useNoteSession loading", () => {
     expect(result.current.todos).toEqual(localTodos);
     expect(result.current.dirty).toBe(true);
     expect(result.current.saveStatus).toBe("dirty");
-    expect(result.current.loadStatus).toBe("ready");
+    expect(result.current.loadStatus).toBe("error");
   });
 
   it("keeps the newest date when an older request resolves last", async () => {
@@ -211,9 +239,11 @@ describe("useNoteSession loading", () => {
       useNoteSession({ initialDate: "2026-07-11", onError: vi.fn(), saveDelay: 20 }),
     );
     await waitFor(() => expect(api.getNote).toHaveBeenCalledWith("2026-07-11"));
-    await act(() => result.current.changeDate("2026-07-12"));
+    let navigation!: Promise<void>;
+    act(() => { navigation = result.current.changeDate("2026-07-12"); });
+    await waitFor(() => expect(api.getNote).toHaveBeenCalledWith("2026-07-12"));
     second.resolve(note("2026-07-12", "<p>new</p>"));
-    await waitFor(() => expect(result.current.content).toBe("<p>new</p>"));
+    await act(async () => navigation);
     first.resolve(note("2026-07-11", "<p>old</p>"));
     await act(async () => Promise.resolve());
 
@@ -235,6 +265,38 @@ describe("useNoteSession loading", () => {
     await waitFor(() => expect(onError).toHaveBeenCalledWith("加载笔记失败"));
 
     expect(result.current.content).toBe("<p>visible</p>");
+  });
+
+  it("keeps edits scoped to the visible date after navigation load fails and retries the target", async () => {
+    let targetAttempts = 0;
+    vi.mocked(api.getNote).mockImplementation(async (date) => {
+      if (date === "2026-07-11") return note(date, "<p>A content</p>");
+      targetAttempts += 1;
+      if (targetAttempts === 1) throw new Error("offline");
+      return note(date, "<p>B content</p>");
+    });
+    vi.mocked(api.saveNote).mockResolvedValue();
+
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-11", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.content).toBe("<p>A content</p>"));
+
+    await act(() => result.current.changeDate("2026-07-12"));
+    await waitFor(() => expect(result.current.loadStatus).toBe("error"));
+    expect(result.current.content).toBe("<p>A content</p>");
+
+    act(() => result.current.setContent("<p>A edited</p>"));
+    expect(result.current.loadStatus).toBe("error");
+    await act(() => result.current.saveNow());
+    expect(result.current.loadStatus).toBe("error");
+    expect(api.saveNote).toHaveBeenCalledWith("2026-07-11", "<p>A edited</p>", "[]");
+    expect(api.saveNote).not.toHaveBeenCalledWith("2026-07-12", "<p>A edited</p>", "[]");
+
+    await act(() => result.current.retryLoad());
+    expect(result.current.currentDate).toBe("2026-07-12");
+    expect(result.current.content).toBe("<p>B content</p>");
+    expect(result.current.loadStatus).toBe("ready");
   });
 
   it("debounces edits and saves the latest snapshot", async () => {
@@ -306,7 +368,7 @@ describe("useNoteSession loading", () => {
     expect(api.saveNote).toHaveBeenCalledWith("2026-07-11", "<p>edited</p>", "[]");
   });
 
-  it("only lets the newest navigation continue when overlapping saves resolve out of order", async () => {
+  it("only lets the newest navigation continue across serialized saves", async () => {
     const firstSave = deferred<void>();
     const secondSave = deferred<void>();
     vi.mocked(api.getNote).mockImplementation(async (date) => note(date, `<p>${date}</p>`));
@@ -326,10 +388,11 @@ describe("useNoteSession loading", () => {
       navigateToB = result.current.changeDate("2026-07-12");
       navigateToC = result.current.changeDate("2026-07-13");
     });
-    secondSave.resolve();
-    await act(async () => navigateToC);
     firstSave.resolve();
     await act(async () => navigateToB);
+    await waitFor(() => expect(api.saveNote).toHaveBeenCalledTimes(2));
+    secondSave.resolve();
+    await act(async () => navigateToC);
 
     await waitFor(() => expect(result.current.currentDate).toBe("2026-07-13"));
     expect(api.getNote).toHaveBeenCalledWith("2026-07-13");

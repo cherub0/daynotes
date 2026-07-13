@@ -123,8 +123,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
         <div className="form-row">
           <div className="form-group">
-            <label>SMTP 服务器</label>
+            <label htmlFor="settings-smtp-host">SMTP 服务器</label>
             <input
+              id="settings-smtp-host"
               type="text"
               value={local.email.smtp_host}
               onChange={(e) => updateEmail("smtp_host", e.target.value)}
@@ -132,8 +133,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
             />
           </div>
           <div className="form-group" style={{ maxWidth: 100 }}>
-            <label>端口</label>
+            <label htmlFor="settings-smtp-port">端口</label>
             <input
+              id="settings-smtp-port"
               type="number"
               value={local.email.smtp_port}
               onChange={(e) => updateEmail("smtp_port", parseInt(e.target.value) || 465)}
@@ -142,8 +144,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>发件邮箱</label>
+          <label htmlFor="settings-sender-email">发件邮箱</label>
           <input
+            id="settings-sender-email"
             type="email"
             value={local.email.username}
             onChange={(e) => updateEmail("username", e.target.value)}
@@ -152,8 +155,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>授权码（非邮箱密码，QQ邮箱需在设置中生成）</label>
+          <label htmlFor="settings-email-password">授权码（非邮箱密码，QQ邮箱需在设置中生成）</label>
           <input
+            id="settings-email-password"
             type="password"
             value={local.email.password}
             onChange={(e) => updateEmail("password", e.target.value)}
@@ -162,8 +166,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>收件邮箱</label>
+          <label htmlFor="settings-recipient-email">收件邮箱</label>
           <input
+            id="settings-recipient-email"
             type="email"
             value={local.email.recipient}
             onChange={(e) => updateEmail("recipient", e.target.value)}
@@ -173,8 +178,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
         <div className="form-row">
           <div className="form-group">
-            <label>每日发送时间</label>
+            <label htmlFor="settings-send-time">每日发送时间</label>
             <input
+              id="settings-send-time"
               type="time"
               value={local.email.send_time}
               onChange={(e) => updateEmail("send_time", e.target.value)}
@@ -240,8 +246,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>字号: {local.font_size}px</label>
+          <label htmlFor="settings-font-size">字号: {local.font_size}px</label>
           <input
+            id="settings-font-size"
             type="range"
             min={12}
             max={20}

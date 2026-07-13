@@ -39,6 +39,7 @@ export default function App() {
   const [shareRetryKey, setShareRetryKey] = useState(0);
   const [settingsRetryKey, setSettingsRetryKey] = useState(0);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((message: string, tone?: ToastTone) => {
     const inferredTone = message.includes("失败") || message.includes("错误")
@@ -46,10 +47,18 @@ export default function App() {
       : message.includes("未能") || message.includes("未打包")
         ? "warning"
         : "success";
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
     setToast({ message, tone: tone ?? inferredTone });
-    setTimeout(() => setToast(null), 2_000);
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast(null);
+    }, 2_000);
   }, []);
   showToastRef.current = showToast;
+
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
+  }, []);
 
   const applyTheme = useCallback((theme: string) => {
     if (theme === "dark") {

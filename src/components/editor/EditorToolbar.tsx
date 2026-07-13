@@ -23,6 +23,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
   const [showLinkEditor, setShowLinkEditor] = useState(false);
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [linkRange, setLinkRange] = useState<EditorRange>({ from: 0, to: 0 });
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const popoverLayerRef = useRef<HTMLDivElement>(null);
   const insertMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -96,10 +97,26 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
     insertMenuTriggerRef.current?.focus();
   };
 
+  const handleToolbarKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (!(event.target instanceof HTMLButtonElement) || event.target.closest("[role='menu']")) return;
+    if (!(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"] as string[]).includes(event.key)) return;
+
+    const buttons = Array.from(toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+    if (buttons.length === 0) return;
+    const currentIndex = buttons.indexOf(event.target);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    if (event.key === "Home") buttons[0].focus();
+    else if (event.key === "End") buttons[buttons.length - 1].focus();
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown") buttons[(currentIndex + 1) % buttons.length].focus();
+    else buttons[(currentIndex - 1 + buttons.length) % buttons.length].focus();
+  };
+
   return (
     <>
-      <div className="editor-toolbar" aria-label="编辑工具栏">
-        <div className="toolbar-group" aria-label="文字格式">
+      <div ref={toolbarRef} className="editor-toolbar" role="toolbar" aria-label="编辑工具栏" aria-orientation="horizontal" onKeyDown={handleToolbarKeyDown}>
+        <div className="toolbar-group" role="group" aria-label="文字格式">
           <span className="toolbar-group-label">文字</span>
           <IconButton label="加粗 (Ctrl+B)" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></IconButton>
           <IconButton label="斜体 (Ctrl+I)" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></IconButton>
@@ -108,7 +125,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
           <IconButton className="toolbar-wide-action" label="删除线" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></IconButton>
         </div>
 
-        <div className="toolbar-group" aria-label="段落结构">
+        <div className="toolbar-group" role="group" aria-label="段落结构">
           <span className="toolbar-group-label">段落</span>
           <IconButton label="标题1" active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</IconButton>
           <IconButton className="toolbar-wide-action" label="标题2" active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</IconButton>
@@ -133,7 +150,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
         </MenuPopover>
 
         {editor.isActive("table") && (
-          <div className="toolbar-group table-actions" aria-label="表格操作">
+          <div className="toolbar-group table-actions" role="group" aria-label="表格操作">
             <span className="toolbar-group-label">表格</span>
             <IconButton label="在上方插入行" onClick={() => editor.chain().focus().addRowBefore().run()} disabled={!editor.can().chain().focus().addRowBefore().run()}>行↑</IconButton>
             <IconButton label="在下方插入行" onClick={() => editor.chain().focus().addRowAfter().run()} disabled={!editor.can().chain().focus().addRowAfter().run()}>行↓</IconButton>
@@ -145,7 +162,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
           </div>
         )}
 
-        <div className="toolbar-group toolbar-history" aria-label="历史操作">
+        <div className="toolbar-group toolbar-history" role="group" aria-label="历史操作">
           <span className="toolbar-group-label">历史</span>
           <IconButton label="撤销 (Ctrl+Z)" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>↩</IconButton>
           <IconButton label="重做 (Ctrl+Y)" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()}>↪</IconButton>

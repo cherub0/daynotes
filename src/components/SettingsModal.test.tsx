@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppSettings } from "../lib/types";
 import { SettingsModal } from "./SettingsModal";
 
@@ -24,7 +24,21 @@ const settings: AppSettings = {
   font_size: 14,
 };
 
+afterEach(cleanup);
+
 describe("SettingsModal", () => {
+  it("associates configuration fields with their visible labels", () => {
+    render(<SettingsModal settings={settings} onSave={vi.fn()} onClose={() => undefined} />);
+
+    expect(screen.getByRole("textbox", { name: "SMTP 服务器" })).not.toBeNull();
+    expect(screen.getByRole("spinbutton", { name: "端口" })).not.toBeNull();
+    expect(screen.getByRole("textbox", { name: "发件邮箱" })).not.toBeNull();
+    expect(screen.getByLabelText(/授权码/)).not.toBeNull();
+    expect(screen.getByRole("textbox", { name: "收件邮箱" })).not.toBeNull();
+    expect(screen.getByLabelText("每日发送时间")).not.toBeNull();
+    expect(screen.getByRole("slider", { name: "字号: 14px" })).not.toBeNull();
+  });
+
   it("uses dialog and radio semantics for theme selection", () => {
     const onSave = vi.fn();
     render(<SettingsModal settings={settings} onSave={onSave} onClose={() => undefined} />);
