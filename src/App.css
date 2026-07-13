@@ -236,6 +236,24 @@
   text-align: left;
 }
 
+.editor-toolbar .ui-menu-popover__menu [role="menuitemcheckbox"]::before,
+.editor-toolbar .ui-menu-popover__menu [role="menuitemradio"]::before {
+  display: inline-block;
+  width: 1em;
+  margin-right: var(--space-1);
+  content: "";
+  font-weight: 700;
+}
+
+.editor-toolbar .ui-menu-popover__menu [aria-checked="true"] {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.editor-toolbar .ui-menu-popover__menu [aria-checked="true"]::before {
+  content: "✓";
+}
+
 .editor-toolbar .ui-menu-popover__menu .toolbar-compact-action {
   display: none;
 }

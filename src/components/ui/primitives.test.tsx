@@ -48,6 +48,16 @@ describe("UI primitives", () => {
     expect(dangerHover).toContain("border-color: var(--text-primary)");
   });
 
+  it("gives checked toolbar menu items semantic color and a visible checkmark", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+    const checkedState = appCss.match(/\.editor-toolbar \.ui-menu-popover__menu \[aria-checked="true"\]\s*\{([^}]*)\}/)?.[1];
+    const checkmark = appCss.match(/\.editor-toolbar \.ui-menu-popover__menu \[aria-checked="true"\]::before\s*\{([^}]*)\}/)?.[1];
+
+    expect(checkedState).toContain("background: var(--accent-light)");
+    expect(checkedState).toContain("color: var(--accent)");
+    expect(checkmark).toContain('content: "✓"');
+  });
+
   it("renders paper surfaces and status text", () => {
     render(<Surface variant="paper"><StatusBadge status="saved">已保存</StatusBadge></Surface>);
     expect(screen.getByText("已保存").classList.contains("ui-status--saved")).toBe(true);
