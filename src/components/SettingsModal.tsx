@@ -110,8 +110,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </h3>
 
         <div className="form-group">
-          <label>邮箱服务</label>
+          <label htmlFor="settings-email-preset">邮箱服务</label>
           <select
+            id="settings-email-preset"
             value={SMTP_PRESETS[selectedPreset]?.label || "自定义"}
             onChange={(e) => handlePresetChange(e.target.value)}
           >

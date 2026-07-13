@@ -213,7 +213,7 @@
 
 .toolbar-group-label {
   margin-right: var(--space-1);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -247,7 +247,7 @@
 
 .editor-toolbar .ui-menu-popover__menu [aria-checked="true"] {
   background: var(--accent-light);
-  color: var(--accent);
+  color: var(--accent-hover);
 }
 
 .editor-toolbar .ui-menu-popover__menu [aria-checked="true"]::before {

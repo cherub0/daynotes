@@ -54,7 +54,7 @@ describe("UI primitives", () => {
     const checkmark = appCss.match(/\.editor-toolbar \.ui-menu-popover__menu \[aria-checked="true"\]::before\s*\{([^}]*)\}/)?.[1];
 
     expect(checkedState).toContain("background: var(--accent-light)");
-    expect(checkedState).toContain("color: var(--accent)");
+    expect(checkedState).toContain("color: var(--accent-hover)");
     expect(checkmark).toContain('content: "✓"');
   });
 

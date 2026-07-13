@@ -23,7 +23,7 @@ describe("normalizeWebUrl", () => {
 });
 
 describe("LinkEditor", () => {
-  it("exposes toolbar groups and supports predictable command navigation", () => {
+  it("navigates only visible toolbar commands without taking menu, input or modifier keys", () => {
     const chain = new Proxy({}, { get: () => () => chain });
     const editor = {
       isActive: vi.fn(() => false),
@@ -34,23 +34,42 @@ describe("LinkEditor", () => {
 
     render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
 
-    expect(screen.getByRole("toolbar", { name: "编辑工具栏" }).getAttribute("aria-orientation")).toBe("horizontal");
+    const toolbar = screen.getByRole("toolbar", { name: "编辑工具栏" });
+    expect(toolbar.getAttribute("aria-orientation")).toBe("horizontal");
     expect(screen.getByRole("group", { name: "文字格式" })).not.toBeNull();
     expect(screen.getByRole("group", { name: "段落结构" })).not.toBeNull();
     expect(screen.getByRole("group", { name: "历史操作" })).not.toBeNull();
 
+    toolbar.querySelectorAll<HTMLElement>(".toolbar-wide-action").forEach((action) => {
+      action.style.display = "none";
+    });
+
     const bold = screen.getByRole("button", { name: "加粗 (Ctrl+B)" });
-    const italic = screen.getByRole("button", { name: "斜体 (Ctrl+I)" });
-    bold.focus();
-    fireEvent.keyDown(bold, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(italic);
-    fireEvent.keyDown(italic, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(bold);
-    fireEvent.keyDown(bold, { key: "End" });
+    const highlight = screen.getByRole("button", { name: "高亮" });
+    const headingOne = screen.getByRole("button", { name: "标题1" });
+    highlight.focus();
+    fireEvent.keyDown(highlight, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(headingOne);
+    fireEvent.keyDown(headingOne, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(highlight);
+    fireEvent.keyDown(highlight, { key: "ArrowRight", ctrlKey: true });
+    expect(document.activeElement).toBe(highlight);
+    fireEvent.keyDown(highlight, { key: "End" });
     const redo = screen.getByRole("button", { name: "重做 (Ctrl+Y)" });
     expect(document.activeElement).toBe(redo);
     fireEvent.keyDown(redo, { key: "Home" });
     expect(document.activeElement).toBe(bold);
+
+    const input = document.createElement("input");
+    toolbar.append(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(input);
+
+    const insertMenu = screen.getByRole("button", { name: "插入内容" });
+    insertMenu.focus();
+    fireEvent.keyDown(insertMenu, { key: "ArrowDown" });
+    expect(screen.getByRole("menu", { name: "插入内容" })).not.toBeNull();
   });
 
   it("applies a valid link to the selected text", () => {

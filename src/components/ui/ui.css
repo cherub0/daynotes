@@ -13,7 +13,7 @@
 .ui-button.ui-button--primary:hover { background: var(--accent-hover); }
 .ui-button.ui-button--danger:hover { background: var(--danger); border-color: var(--text-primary); }
 .ui-icon-button { width: 36px; padding: 0; display: inline-grid; place-items: center; }
-.ui-icon-button.is-active { color: var(--accent); background: var(--accent-light); }
+.ui-icon-button.is-active { color: var(--accent-hover); background: var(--accent-light); }
 .ui-surface--paper { background: var(--surface-paper); }
 .ui-surface--raised { background: var(--surface-raised); }
 .ui-surface--inset { background: var(--surface-inset); }

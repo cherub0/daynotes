@@ -6,6 +6,7 @@ import { LinkEditor, type EditorRange } from "../LinkEditor";
 import { SaveStatusIndicator } from "../SaveStatus";
 import { TablePicker } from "../TablePicker";
 import { IconButton } from "../ui/Button";
+import { isElementVisible } from "../ui/focus";
 import { MenuPopover } from "../ui/MenuPopover";
 import { CodeLanguagePicker } from "./CodeLanguagePicker";
 import { ImageInsertPopover } from "./ImageInsertPopover";
@@ -102,7 +103,9 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
     if (!(event.target instanceof HTMLButtonElement) || event.target.closest("[role='menu']")) return;
     if (!(["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"] as string[]).includes(event.key)) return;
 
-    const buttons = Array.from(toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+    const buttons = Array.from(
+      toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+    ).filter(isElementVisible);
     if (buttons.length === 0) return;
     const currentIndex = buttons.indexOf(event.target);
     if (currentIndex < 0) return;

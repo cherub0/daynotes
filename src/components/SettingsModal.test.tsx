@@ -30,6 +30,7 @@ describe("SettingsModal", () => {
   it("associates configuration fields with their visible labels", () => {
     render(<SettingsModal settings={settings} onSave={vi.fn()} onClose={() => undefined} />);
 
+    expect(screen.getByRole("combobox", { name: "邮箱服务" })).not.toBeNull();
     expect(screen.getByRole("textbox", { name: "SMTP 服务器" })).not.toBeNull();
     expect(screen.getByRole("spinbutton", { name: "端口" })).not.toBeNull();
     expect(screen.getByRole("textbox", { name: "发件邮箱" })).not.toBeNull();
