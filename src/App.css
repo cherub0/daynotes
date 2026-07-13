@@ -516,7 +516,6 @@
   padding: var(--space-1) 0;
   border: 0;
   border-bottom: 1px solid transparent;
-  outline: none;
   color: var(--text-primary);
   background: transparent;
   font-size: 13px;
@@ -524,6 +523,11 @@
 
 .todo-text:focus {
   border-bottom-color: var(--accent);
+}
+
+.todo-text:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .todo-text.done {

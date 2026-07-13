@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+// @ts-expect-error Vitest runs in Node, but this frontend project does not install Node type declarations.
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TodoItem } from "../lib/types";
 import { TodoPanel } from "./TodoPanel";
@@ -75,5 +77,13 @@ describe("TodoPanel", () => {
       { id: "1", text: "未完成", done: false },
       { id: "2", text: "已完成", done: false },
     ]);
+  });
+
+  it("为键盘聚焦的待办文本显示高对比度焦点环", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toMatch(
+      /\.todo-text:focus-visible\s*{[^}]*outline:\s*3px solid var\(--focus-ring\);[^}]*outline-offset:\s*2px;/s,
+    );
   });
 });
