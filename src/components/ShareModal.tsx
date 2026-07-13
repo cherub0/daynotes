@@ -247,3 +247,5 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     </div>
   );
 }
+
+export default ShareModal;

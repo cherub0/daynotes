@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { attachBrowserErrorListeners } from "./verify-browser-errors.mjs";
 
 const root = process.cwd();
 const outputDir = path.join(root, "verify-output");
@@ -54,6 +55,9 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const consoleMessages = [];
+  page.on("console", (message) => consoleMessages.push(`[${message.type()}] ${message.text()}`));
+  attachBrowserErrorListeners(page, consoleMessages);
   await page.route("http://daynotes.local/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
@@ -359,9 +363,13 @@ try {
   await page.screenshot({ path: path.join(screenshotDir, "share-modal.png"), fullPage: true });
   await page.locator(".modal-close").click();
 
-  const consoleMessages = [];
-  page.on("console", (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
   await fs.writeFile(path.join(logDir, "gui-verification.txt"), "Playwright served the production dist bundle through an in-process route.\n", "utf8");
+  await fs.writeFile(path.join(logDir, "agent-browser-console.txt"), `${consoleMessages.join("\n")}\n`, "utf8");
+  await fs.writeFile(
+    path.join(logDir, "agent-browser-errors.txt"),
+    `${consoleMessages.filter((message) => message.startsWith("[error]")).join("\n")}\n`,
+    "utf8",
+  );
   await fs.writeFile(path.join(outputDir, "editor-matrix.json"), JSON.stringify(editorChecks, null, 2), "utf8");
   await fs.writeFile(path.join(outputDir, "share-matrix.json"), JSON.stringify(shareChecks, null, 2), "utf8");
 
