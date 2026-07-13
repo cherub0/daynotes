@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Editor } from "@tiptap/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeWebUrl } from "../lib/linkUtils";
 import { LinkEditor } from "./LinkEditor";
+import { EditorToolbar } from "./editor/EditorToolbar";
+
+afterEach(cleanup);
 
 describe("normalizeWebUrl", () => {
   it("adds a protocol to ordinary web addresses", () => {
@@ -44,5 +47,23 @@ describe("LinkEditor", () => {
     expect(setLink).toHaveBeenCalledWith({ href: "https://example.com/" });
     expect(run).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("opens link choices from the insert menu and restores focus on Escape", () => {
+    const chain = new Proxy({}, { get: () => () => chain });
+    const editor = {
+      isActive: vi.fn(() => false),
+      chain: () => chain,
+      can: () => ({ chain: () => chain, undo: () => true, redo: () => true }),
+      state: { selection: { from: 1, to: 1 } },
+    } as unknown as Editor;
+
+    render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "插入链接" }));
+
+    expect(screen.getByRole("button", { name: "🌐 网页链接…" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "插入内容" }));
   });
 });

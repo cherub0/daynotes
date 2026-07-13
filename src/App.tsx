@@ -29,6 +29,7 @@ export default function App() {
     saveNow,
     setContent,
     setTodos,
+    saveStatus,
     loadStatus,
     retryLoad,
   } = session;
@@ -145,7 +146,12 @@ export default function App() {
       <div className="daily-scroll">
         <main className="daily-flow">
           <section className="editor-paper" aria-label="今日笔记">
-            <Editor content={content} onChange={setContent} />
+            <Editor
+              content={content}
+              onChange={setContent}
+              saveStatus={saveStatus}
+              onRetrySave={() => { void saveNow(); }}
+            />
           </section>
           <TodoPanel todos={todos} onChange={setTodos} />
         </main>

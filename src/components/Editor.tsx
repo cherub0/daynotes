@@ -14,6 +14,7 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { common, createLowlight } from "lowlight";
 import { useEffect } from "react";
+import type { SaveStatus } from "../hooks/useNoteSession";
 import { EditorToolbar } from "./editor/EditorToolbar";
 import { readImageAsDataUrl, validateImageFile } from "./editor/imageFiles";
 
@@ -22,9 +23,11 @@ const lowlight = createLowlight(common);
 interface EditorProps {
   content: string;
   onChange: (html: string) => void;
+  saveStatus: SaveStatus;
+  onRetrySave: () => void;
 }
 
-export function Editor({ content, onChange }: EditorProps) {
+export function Editor({ content, onChange, saveStatus, onRetrySave }: EditorProps) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -108,7 +111,7 @@ export function Editor({ content, onChange }: EditorProps) {
 
   return (
     <div className="editor-wrapper">
-      <EditorToolbar editor={editor} />
+      <EditorToolbar editor={editor} saveStatus={saveStatus} onRetrySave={onRetrySave} />
       <div className="editor-content"><EditorContent editor={editor} /></div>
       <style>{`
         .editor-wrapper { display:flex; flex-direction:column; height:100%; }

@@ -39,7 +39,7 @@ function createEditor() {
     },
   });
   const editor = {
-    isActive: vi.fn(() => false),
+    isActive: vi.fn((name: string) => name === "table"),
     chain: () => chain,
     can: () => ({ chain: () => chain, undo: () => true, redo: () => true }),
     state: { selection: { from: 1, to: 1 } },
@@ -50,21 +50,48 @@ function createEditor() {
 describe("EditorToolbar table popover", () => {
   it("inserts the selected table size with a header row", () => {
     const { editor, insertTable } = createEditor();
-    const { container } = render(<EditorToolbar editor={editor} />);
+    render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
 
-    fireEvent.click(container.querySelector('[data-toolbar-action="table"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "插入表格" }));
     fireEvent.click(screen.getByRole("button", { name: "3 行 5 列" }));
 
     expect(insertTable).toHaveBeenCalledWith({ rows: 3, cols: 5, withHeaderRow: true });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "插入内容" }));
   });
 
   it("closes the active popover on an outside click", () => {
     const { editor } = createEditor();
-    const { container } = render(<EditorToolbar editor={editor} />);
+    render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
 
-    fireEvent.click(container.querySelector('[data-toolbar-action="table"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "插入表格" }));
     expect(screen.getByRole("dialog", { name: "选择表格大小" })).toBeTruthy();
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole("dialog", { name: "选择表格大小" })).toBeNull();
+  });
+
+  it("keeps every editor command reachable through accessible labels", () => {
+    const { editor } = createEditor();
+    render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
+
+    for (const label of [
+      "加粗 (Ctrl+B)", "斜体 (Ctrl+I)", "下划线 (Ctrl+U)", "高亮",
+      "删除线", "标题1", "标题2", "标题3", "无序列表", "有序列表", "任务列表", "引用",
+      "插入分隔线", "撤销 (Ctrl+Z)", "重做 (Ctrl+Y)",
+      "在上方插入行", "在下方插入行", "在左侧插入列", "在右侧插入列",
+      "删除当前行", "删除当前列", "删除表格",
+    ]) {
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    for (const label of [
+      "删除线", "标题2", "标题3", "引用", "插入分隔线",
+      "代码块", "插入链接", "插入图片", "插入表格",
+    ]) {
+      expect(screen.getByRole("menuitem", { name: label })).toBeTruthy();
+    }
   });
 });
