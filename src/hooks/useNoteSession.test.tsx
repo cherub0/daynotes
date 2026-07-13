@@ -189,7 +189,7 @@ describe("useNoteSession loading", () => {
 
     let retry!: Promise<void>;
     act(() => { retry = result.current.retryLoad(); });
-    const localTodos = [{ id: "local", text: "本地待办", completed: false }];
+    const localTodos = [{ id: "local", text: "本地待办", done: false }];
     act(() => result.current.setTodos(localTodos));
     pending.resolve(note("2026-07-13", "<p>remote</p>", JSON.stringify([
       { id: "remote", text: "远端待办", completed: true },
