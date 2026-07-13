@@ -1,5 +1,5 @@
 import { Children, cloneElement, Fragment, isValidElement, useEffect, useId, useRef, useState } from "react";
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import { IconButton } from "./Button";
 import { isElementVisible } from "./focus";
 
@@ -43,6 +43,7 @@ export interface MenuPopoverProps {
   triggerContent: ReactNode;
   children: ReactNode;
   active?: boolean;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   align?: "start" | "end";
   className?: string;
 }
@@ -52,6 +53,7 @@ export function MenuPopover({
   triggerContent,
   children,
   active = false,
+  triggerRef,
   align = "start",
   className = "",
 }: MenuPopoverProps) {
@@ -124,9 +126,9 @@ export function MenuPopover({
   return (
     <div ref={containerRef} className={`ui-menu-popover ${className}`.trim()}>
       <IconButton
+        ref={triggerRef}
         label={label}
-        active={active}
-        className={open ? "is-active" : ""}
+        className={open || active ? "is-active" : ""}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -144,7 +146,17 @@ export function MenuPopover({
         {triggerContent}
       </IconButton>
       {open && (
-        <div id={menuId} role="menu" aria-label={label} className={`ui-menu-popover__menu ui-menu-popover__menu--${align}`}>
+        <div
+          id={menuId}
+          role="menu"
+          aria-label={label}
+          className={`ui-menu-popover__menu ui-menu-popover__menu--${align}`}
+          onClick={(event) => {
+            if (!(event.target as Element).closest(MENU_ITEM_SELECTOR)) return;
+            setOpen(false);
+            containerRef.current?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
+          }}
+        >
           {menuItems}
         </div>
       )}

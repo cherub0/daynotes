@@ -60,7 +60,7 @@ describe("LinkEditor", () => {
 
     render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "插入链接" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "插入链接" }));
 
     expect(screen.getByRole("button", { name: "🌐 网页链接…" })).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });

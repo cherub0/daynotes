@@ -24,6 +24,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [linkRange, setLinkRange] = useState<EditorRange>({ from: 0, to: 0 });
   const popoverLayerRef = useRef<HTMLDivElement>(null);
+  const insertMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const hasOpenPopover = showLangPicker || showImagePicker || showLinkPicker || showLinkEditor || showTablePicker;
@@ -41,17 +42,31 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
   }, [showImagePicker, showLangPicker, showLinkEditor, showLinkPicker, showTablePicker]);
 
   useEffect(() => {
+    let selector: string | null = null;
+    if (showLangPicker) selector = ".lang-option";
+    else if (showLinkPicker) selector = ".lang-option";
+    else if (showLinkEditor) selector = ".link-editor input:not(:disabled)";
+    else if (showImagePicker) selector = ".toolbar-detached-image .lang-option";
+    else if (showTablePicker) selector = ".table-picker-cell";
+    if (selector) popoverLayerRef.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [showImagePicker, showLangPicker, showLinkEditor, showLinkPicker, showTablePicker]);
+
+  useEffect(() => {
+    const hasOpenPopover = showLangPicker || showImagePicker || showLinkPicker || showLinkEditor || showTablePicker;
+    if (!hasOpenPopover) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      event.preventDefault();
       setShowLangPicker(false);
       setShowImagePicker(false);
       setShowLinkPicker(false);
       setShowLinkEditor(false);
       setShowTablePicker(false);
+      insertMenuTriggerRef.current?.focus();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, []);
+  }, [showImagePicker, showLangPicker, showLinkEditor, showLinkPicker, showTablePicker]);
 
   const insertWebLink = () => {
     setLinkRange({ from: editor.state.selection.from, to: editor.state.selection.to });
@@ -78,6 +93,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
   const addTable = (rows: number, cols: number) => {
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
     setShowTablePicker(false);
+    insertMenuTriggerRef.current?.focus();
   };
 
   return (
@@ -104,14 +120,14 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
           <IconButton className="toolbar-wide-action" label="插入分隔线" onClick={() => editor.chain().focus().setHorizontalRule().run()}>―</IconButton>
         </div>
 
-        <MenuPopover label="插入内容" triggerContent="＋" active={showLangPicker || showImagePicker || showLinkPicker || showLinkEditor || showTablePicker}>
-          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitem" onClick={() => editor.chain().focus().toggleStrike().run()}>删除线</button>
-          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitem" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>标题2</button>
-          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitem" onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>标题3</button>
-          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitem" onClick={() => editor.chain().focus().toggleBlockquote().run()}>引用</button>
+        <MenuPopover label="插入内容" triggerContent="＋" triggerRef={insertMenuTriggerRef} active={showLangPicker || showImagePicker || showLinkPicker || showLinkEditor || showTablePicker}>
+          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitemcheckbox" aria-checked={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>删除线</button>
+          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitemradio" aria-checked={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>标题2</button>
+          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitemradio" aria-checked={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>标题3</button>
+          <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitemcheckbox" aria-checked={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>引用</button>
           <button type="button" className="ui-button ui-button--subtle toolbar-compact-action" role="menuitem" onClick={() => editor.chain().focus().setHorizontalRule().run()}>插入分隔线</button>
-          <button type="button" className="ui-button ui-button--subtle" role="menuitem" onClick={() => setShowLangPicker(true)}>代码块</button>
-          <button type="button" className="ui-button ui-button--subtle" role="menuitem" data-toolbar-action="link" onClick={() => setShowLinkPicker(true)}>插入链接</button>
+          <button type="button" className="ui-button ui-button--subtle" role="menuitemcheckbox" aria-checked={editor.isActive("codeBlock")} onClick={() => setShowLangPicker(true)}>代码块</button>
+          <button type="button" className="ui-button ui-button--subtle" role="menuitemcheckbox" aria-checked={editor.isActive("link")} data-toolbar-action="link" onClick={() => setShowLinkPicker(true)}>插入链接</button>
           <button type="button" className="ui-button ui-button--subtle" role="menuitem" onClick={() => setShowImagePicker(true)}>插入图片</button>
           <button type="button" className="ui-button ui-button--subtle" role="menuitem" data-toolbar-action="table" onClick={() => setShowTablePicker(true)}>插入表格</button>
         </MenuPopover>

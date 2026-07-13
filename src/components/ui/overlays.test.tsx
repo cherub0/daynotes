@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getFocusableElements } from "./focus";
 import { MenuPopover } from "./MenuPopover";
@@ -23,6 +23,17 @@ describe("accessible overlays", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes a menu after an action and restores its trigger by default", () => {
+    const triggerRef = createRef<HTMLButtonElement>();
+    render(<MenuPopover label="插入内容" triggerContent="＋" triggerRef={triggerRef}><button>插入图片</button></MenuPopover>);
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    const action = screen.getByRole("menuitem", { name: "插入图片" });
+    fireEvent.click(action);
+    expect(screen.queryByRole("menu", { name: "插入内容" })).toBeNull();
+    expect(triggerRef.current).toBe(screen.getByRole("button", { name: "插入内容" }));
+    expect(document.activeElement).toBe(triggerRef.current);
   });
 
   it("focuses menu items and supports Arrow, Home, and End navigation", () => {

@@ -15,6 +15,19 @@ describe("UI primitives", () => {
     expect(screen.getByRole("button", { name: "打开设置" }).getAttribute("title")).toBe("打开设置");
   });
 
+  it("exposes explicit false and true pressed states only for toggle icon buttons", () => {
+    render(
+      <>
+        <IconButton label="未启用粗体" active={false}>B</IconButton>
+        <IconButton label="已启用粗体" active>B</IconButton>
+        <IconButton label="普通操作">＋</IconButton>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "未启用粗体" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "已启用粗体" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "普通操作" }).getAttribute("aria-pressed")).toBeNull();
+  });
+
   it("renders semantic variants without changing button behavior", () => {
     const onClick = vi.fn();
     render(<Button variant="danger" onClick={onClick}>删除</Button>);
