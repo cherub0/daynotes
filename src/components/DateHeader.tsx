@@ -82,7 +82,17 @@ export function DateHeader({
           >
             ▦
           </IconButton>
-          {!isToday && <Button variant="subtle" onClick={onToday}>回到今天</Button>}
+          {!isToday && (
+            <Button
+              variant="subtle"
+              className="date-today-action"
+              aria-label="回到今天"
+              onClick={onToday}
+            >
+              <span className="date-today-label">回到今天</span>
+              <span className="date-today-compact" aria-hidden="true">今天</span>
+            </Button>
+          )}
         </div>
 
         <div className={`load-state load-state--${loadStatus}`} aria-live="polite">

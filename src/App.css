@@ -1,8 +1,12 @@
 .app-container {
+  --app-bar-height: 44px;
+  --date-hero-height: 88px;
+  --date-hero-height-narrow: 140px;
+  --date-heading-min: 300px;
+  --app-header-height: calc(var(--app-bar-height) + var(--date-hero-height));
   height: 100vh;
   overflow: hidden;
   background: var(--surface-app);
-  --app-header-height: 132px;
 }
 
 /* ── Top Bar ─────────────────────── */
@@ -11,9 +15,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   -webkit-app-region: drag;
-  min-height: 44px;
+  min-height: var(--app-bar-height);
 }
 
 .app-bar button {
@@ -116,7 +120,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 87px;
+  min-height: var(--date-hero-height);
   padding: var(--space-3) var(--space-4) var(--space-4);
 }
 
@@ -129,7 +133,7 @@
 }
 
 .date-navigation .date-display {
-  min-width: 300px;
+  min-width: var(--date-heading-min);
   margin: 0 var(--space-2);
   color: var(--text-primary);
   font-family: var(--font-editorial);
@@ -152,8 +156,8 @@
 }
 
 .load-state--loading::before {
-  width: 8px;
-  height: 8px;
+  width: var(--space-2);
+  height: var(--space-2);
   border-radius: 50%;
   background: var(--accent);
   content: "";
@@ -541,6 +545,7 @@
 
 .toast--warning { border-left-color: var(--warning); }
 .toast--error { border-left-color: var(--danger); }
+.date-today-compact { display: none; }
 
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
@@ -553,22 +558,46 @@
 }
 
 @media (max-width: 719px) {
+  .app-container { --date-hero-height: var(--date-hero-height-narrow); }
+
   .daily-flow {
     width: calc(100% - 24px);
     padding-top: var(--space-3);
   }
 
   .app-bar { padding-inline: var(--space-3); }
-  .date-hero { padding-inline: var(--space-2); }
-  .date-navigation { width: 100%; justify-content: center; }
+  .date-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "navigation navigation" "status tools";
+    align-content: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-2);
+  }
+  .date-navigation {
+    grid-area: navigation;
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+  }
   .date-navigation .date-display {
     min-width: 0;
     margin-inline: 0;
     font-size: 20px;
   }
-  .date-tools { right: var(--space-2); }
-  .date-tools .ui-button:not(.ui-icon-button) { display: none; }
-  .load-state { left: var(--space-2); }
+  .date-tools {
+    grid-area: tools;
+    position: static;
+    justify-self: end;
+  }
+  .date-today-compact { display: inline; }
+  .date-today-label { display: none; }
+  .load-state {
+    grid-area: status;
+    position: static;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
   .load-state .ui-button { min-height: 32px; padding-inline: var(--space-2); }
   .toast { width: calc(100% - 24px); text-align: center; }
 }

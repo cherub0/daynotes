@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+// @ts-expect-error Vitest runs in Node, but this frontend project does not install Node type declarations.
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DateHeaderProps } from "./DateHeader";
 import { DateHeader } from "./DateHeader";
@@ -48,6 +50,22 @@ describe("DateHeader", () => {
     render(<DateHeader {...createProps({ loadStatus: "loading" })} />);
 
     expect(screen.getByText("正在加载笔记")).toBeTruthy();
+  });
+
+  it("keeps the today action named and compactable on narrow screens", () => {
+    render(<DateHeader {...createProps()} />);
+
+    const todayAction = screen.getByRole("button", { name: "回到今天" });
+    expect(todayAction.classList.contains("date-today-action")).toBe(true);
+    expect(todayAction.querySelector(".date-today-compact")?.textContent).toBe("今天");
+  });
+
+  it("reserves separate narrow-screen rows for navigation and status actions", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toContain('grid-template-areas: "navigation navigation" "status tools"');
+    expect(appCss).toMatch(/@media \(max-width: 719px\)[\s\S]*\.date-tools\s*{[^}]*position:\s*static/);
+    expect(appCss).toMatch(/@media \(max-width: 719px\)[\s\S]*\.load-state\s*{[^}]*position:\s*static/);
   });
 });
 
