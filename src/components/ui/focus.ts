@@ -4,7 +4,20 @@ const FOCUSABLE = [
 ].join(",");
 
 export function getFocusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => !element.hidden);
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => {
+    for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+      const style = window.getComputedStyle(current);
+      if (
+        current.hidden
+        || current.hasAttribute("inert")
+        || current.getAttribute("aria-hidden") === "true"
+        || style.display === "none"
+        || style.visibility === "hidden"
+        || style.visibility === "collapse"
+      ) return false;
+    }
+    return true;
+  });
 }
 
 export function loopFocus(event: KeyboardEvent, container: HTMLElement) {
