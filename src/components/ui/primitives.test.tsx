@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from "@testing-library/react";
+// @ts-expect-error Vitest runs in Node, but this frontend project does not install Node type declarations.
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { Button, IconButton } from "./Button";
 import { SegmentedControl } from "./SegmentedControl";
@@ -19,6 +21,18 @@ describe("UI primitives", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(onClick).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "删除" }).classList.contains("ui-button--danger")).toBe(true);
+  });
+
+  it("preserves semantic primary and danger treatments on hover", () => {
+    const uiCss = readFileSync("src/components/ui/ui.css", "utf8");
+    const primaryHover = uiCss.match(/\.ui-button\.ui-button--primary:hover\s*\{([^}]*)\}/)?.[1];
+    const dangerHover = uiCss.match(/\.ui-button\.ui-button--danger:hover\s*\{([^}]*)\}/)?.[1];
+
+    expect(primaryHover).toBeDefined();
+    expect(dangerHover).toBeDefined();
+    expect(primaryHover).toContain("background: var(--accent-hover)");
+    expect(dangerHover).toContain("background: var(--danger)");
+    expect(dangerHover).toContain("border-color: var(--text-primary)");
   });
 
   it("renders paper surfaces and status text", () => {

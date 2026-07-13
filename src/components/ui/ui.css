@@ -10,6 +10,8 @@
 .ui-button--secondary { background: var(--surface-inset); color: var(--text-primary); border-color: var(--border-color); }
 .ui-button--subtle { background: transparent; color: var(--text-secondary); }
 .ui-button--danger { background: var(--danger); color: var(--text-inverse); }
+.ui-button.ui-button--primary:hover { background: var(--accent-hover); }
+.ui-button.ui-button--danger:hover { background: var(--danger); border-color: var(--text-primary); }
 .ui-icon-button { width: 36px; padding: 0; display: inline-grid; place-items: center; }
 .ui-icon-button.is-active { color: var(--accent); background: var(--accent-light); }
 .ui-surface--paper { background: var(--surface-paper); }
