@@ -90,6 +90,13 @@ describe("complete UI visual evidence", () => {
 });
 
 describe("complete verification command evidence", () => {
+  it("routes the standard verify entry through the logged orchestration without recursion", async () => {
+    const packageJson = JSON.parse(await import("node:fs/promises").then(({ readFile }) => readFile(path.join(process.cwd(), "package.json"), "utf8")));
+
+    expect(packageJson.scripts.verify).toBe("npm run verify:logged");
+    expect(packageJson.scripts["verify:logged"]).not.toContain("npm run verify");
+  });
+
   it.each(REQUIRED_COMMAND_LOGS)("rejects a missing command log: %s", async ({ path: relativePath }) => {
     const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-command-logs-"));
     temporaryDirectories.push(outputDir);
