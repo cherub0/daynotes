@@ -41,6 +41,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
   const todosRef = useRef(todos);
   const dirtyRef = useRef(dirty);
   const loadGuardRef = useRef(createLatestRequestGuard());
+  const saveGenerationRef = useRef(0);
   const navigationGenerationRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
@@ -106,11 +107,13 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
 
   const saveSnapshot = useCallback(
     async (date: string, html: string, serializedTodos: string): Promise<boolean> => {
+      const saveGeneration = ++saveGenerationRef.current;
       if (mountedRef.current) setSaveStatus("saving");
       try {
         await api.saveNote(date, html, serializedTodos);
         if (
           mountedRef.current &&
+          saveGeneration === saveGenerationRef.current &&
           currentDateRef.current === date &&
           contentRef.current === html &&
           JSON.stringify(todosRef.current) === serializedTodos
@@ -118,7 +121,11 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
           dirtyRef.current = false;
           setDirty(false);
           setSaveStatus("saved");
-        } else if (mountedRef.current && currentDateRef.current === date) {
+        } else if (
+          mountedRef.current &&
+          saveGeneration === saveGenerationRef.current &&
+          currentDateRef.current === date
+        ) {
           setSaveStatus("dirty");
         }
         try {
@@ -128,7 +135,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
         }
         return true;
       } catch {
-        if (mountedRef.current) {
+        if (mountedRef.current && saveGeneration === saveGenerationRef.current) {
           setSaveStatus("error");
           onErrorRef.current("保存失败");
         }
@@ -153,20 +160,24 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
   }, [clearSaveTimer, saveDelay, saveNow]);
 
   const setContent = useCallback((nextContent: string) => {
+    loadGuardRef.current.begin();
     contentRef.current = nextContent;
     dirtyRef.current = true;
     setContentState(nextContent);
     setDirty(true);
     setSaveStatus("dirty");
+    setLoadStatus("ready");
     scheduleSave();
   }, [scheduleSave]);
 
   const setTodos = useCallback((nextTodos: TodoItem[]) => {
+    loadGuardRef.current.begin();
     todosRef.current = nextTodos;
     dirtyRef.current = true;
     setTodosState(nextTodos);
     setDirty(true);
     setSaveStatus("dirty");
+    setLoadStatus("ready");
     scheduleSave();
   }, [scheduleSave]);
 

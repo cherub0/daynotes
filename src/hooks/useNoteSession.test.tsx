@@ -22,10 +22,12 @@ const note = (date: string, content: string, todos = "[]"): Note => ({
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 };
 
 describe("useNoteSession loading", () => {
@@ -86,6 +88,64 @@ describe("useNoteSession loading", () => {
     expect(result.current.saveStatus).toBe("dirty");
   });
 
+  it("ignores an older successful save after the latest snapshot is saved", async () => {
+    const firstSave = deferred<void>();
+    const secondSave = deferred<void>();
+    vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));
+    vi.mocked(api.saveNote)
+      .mockReturnValueOnce(firstSave.promise)
+      .mockReturnValueOnce(secondSave.promise);
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("ready"));
+
+    act(() => result.current.setContent("<p>first</p>"));
+    let savingFirst!: Promise<boolean>;
+    act(() => { savingFirst = result.current.saveNow(); });
+    act(() => result.current.setContent("<p>second</p>"));
+    let savingSecond!: Promise<boolean>;
+    act(() => { savingSecond = result.current.saveNow(); });
+    secondSave.resolve();
+    await act(async () => savingSecond);
+    expect(result.current.saveStatus).toBe("saved");
+    expect(result.current.dirty).toBe(false);
+
+    firstSave.resolve();
+    await act(async () => savingFirst);
+    expect(result.current.saveStatus).toBe("saved");
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it("ignores an older failed save after the latest snapshot is saved", async () => {
+    const firstSave = deferred<void>();
+    const secondSave = deferred<void>();
+    const onError = vi.fn();
+    vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));
+    vi.mocked(api.saveNote)
+      .mockReturnValueOnce(firstSave.promise)
+      .mockReturnValueOnce(secondSave.promise);
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError, saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("ready"));
+
+    act(() => result.current.setContent("<p>first</p>"));
+    let savingFirst!: Promise<boolean>;
+    act(() => { savingFirst = result.current.saveNow(); });
+    act(() => result.current.setContent("<p>second</p>"));
+    let savingSecond!: Promise<boolean>;
+    act(() => { savingSecond = result.current.saveNow(); });
+    secondSave.resolve();
+    await act(async () => savingSecond);
+
+    firstSave.reject(new Error("older save failed"));
+    await act(async () => savingFirst);
+    expect(result.current.saveStatus).toBe("saved");
+    expect(result.current.dirty).toBe(false);
+    expect(onError).not.toHaveBeenCalledWith("保存失败");
+  });
+
   it("keeps visible content and retries the current load", async () => {
     vi.mocked(api.getNote)
       .mockRejectedValueOnce(new Error("offline"))
@@ -97,6 +157,49 @@ describe("useNoteSession loading", () => {
     await act(() => result.current.retryLoad());
     expect(result.current.loadStatus).toBe("ready");
     expect(result.current.content).toBe("<p>recovered</p>");
+  });
+
+  it("does not overwrite content edited while the initial load is pending", async () => {
+    const pending = deferred<Note | null>();
+    vi.mocked(api.getNote).mockReturnValue(pending.promise);
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(api.getNote).toHaveBeenCalledWith("2026-07-13"));
+
+    act(() => result.current.setContent("<p>local edit</p>"));
+    pending.resolve(note("2026-07-13", "<p>remote content</p>"));
+    await act(async () => pending.promise);
+
+    expect(result.current.content).toBe("<p>local edit</p>");
+    expect(result.current.dirty).toBe(true);
+    expect(result.current.saveStatus).toBe("dirty");
+    expect(result.current.loadStatus).toBe("ready");
+  });
+
+  it("does not overwrite todos edited while a retry load is pending", async () => {
+    const pending = deferred<Note | null>();
+    vi.mocked(api.getNote)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("error"));
+
+    let retry!: Promise<void>;
+    act(() => { retry = result.current.retryLoad(); });
+    const localTodos = [{ id: "local", text: "本地待办", completed: false }];
+    act(() => result.current.setTodos(localTodos));
+    pending.resolve(note("2026-07-13", "<p>remote</p>", JSON.stringify([
+      { id: "remote", text: "远端待办", completed: true },
+    ])));
+    await act(async () => retry);
+
+    expect(result.current.todos).toEqual(localTodos);
+    expect(result.current.dirty).toBe(true);
+    expect(result.current.saveStatus).toBe("dirty");
+    expect(result.current.loadStatus).toBe("ready");
   });
 
   it("keeps the newest date when an older request resolves last", async () => {
@@ -167,11 +270,17 @@ describe("useNoteSession loading", () => {
     await waitFor(() => expect(result.current.content).toBe("<p>start</p>"));
     act(() => result.current.setContent("<p>changed</p>"));
 
-    await expect(result.current.saveNow()).resolves.toBe(false);
+    let failedSave!: boolean;
+    await act(async () => { failedSave = await result.current.saveNow(); });
+    expect(failedSave).toBe(false);
     expect(onError).toHaveBeenCalledWith("保存失败");
     expect(result.current.dirty).toBe(true);
-    await expect(result.current.saveNow()).resolves.toBe(true);
+    expect(result.current.saveStatus).toBe("error");
+    let successfulSave!: boolean;
+    await act(async () => { successfulSave = await result.current.saveNow(); });
+    expect(successfulSave).toBe(true);
     await waitFor(() => expect(result.current.dirty).toBe(false));
+    expect(result.current.saveStatus).toBe("saved");
     expect(api.saveNote).toHaveBeenCalledTimes(2);
   });
 

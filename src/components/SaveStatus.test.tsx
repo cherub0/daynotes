@@ -18,12 +18,17 @@ describe("SaveStatusIndicator", () => {
     expect(screen.getByText(label)).toBeTruthy();
   });
 
-  it("only renders a retry action for an error and invokes onRetry", () => {
-    const onRetry = vi.fn();
-    const { rerender } = render(<SaveStatusIndicator status="saved" onRetry={onRetry} />);
-    expect(screen.queryByRole("button", { name: "重试" })).toBeNull();
+  it.each(["saved", "dirty", "saving"] satisfies SaveStatus[])(
+    "does not render a retry action for %s",
+    (status) => {
+      render(<SaveStatusIndicator status={status} onRetry={vi.fn()} />);
+      expect(screen.queryByRole("button", { name: "重试" })).toBeNull();
+    },
+  );
 
-    rerender(<SaveStatusIndicator status="error" onRetry={onRetry} />);
+  it("renders a retry action for an error and invokes onRetry", () => {
+    const onRetry = vi.fn();
+    render(<SaveStatusIndicator status="error" onRetry={onRetry} />);
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
