@@ -14,6 +14,7 @@
     "verify:gui": "node scripts/verify-app.mjs",
     "verify:complete-ui": "npm run build && node scripts/verify-complete-ui.mjs",
     "verify:evidence": "node scripts/verify-evidence.mjs",
+    "verify:logged": "powershell -ExecutionPolicy Bypass -File scripts/verify-logged.ps1",
     "verify:rust": "powershell -ExecutionPolicy Bypass -File scripts/verify-rust.ps1",
     "preview": "vite preview",
     "tauri": "tauri",

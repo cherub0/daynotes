@@ -19,6 +19,11 @@ await Promise.all([
   fs.mkdir(artifactDir, { recursive: true }),
   fs.mkdir(logDir, { recursive: true }),
 ]);
+await Promise.all([
+  fs.rm(path.join(artifactDir, "sample.pdf"), { force: true }),
+  fs.rm(path.join(logDir, "rust-tests.txt"), { force: true }),
+  fs.rm(path.join(logDir, "tauri-build.txt"), { force: true }),
+]);
 
 async function writeSelfContainedBundle() {
   let html = await fs.readFile(path.join(distDir, "index.html"), "utf8");
@@ -50,29 +55,6 @@ async function record(matrix, name, action, page) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-function createVerificationPdf(pageCount) {
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${3 + index * 2} 0 R`).join(" ")}] /Count ${pageCount} >>`,
-  ];
-  for (let index = 0; index < pageCount; index += 1) {
-    const contentId = 4 + index * 2;
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${contentId} 0 R >>`);
-    objects.push("<< /Length 0 >>\nstream\n\nendstream");
-  }
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(pdf, "ascii"));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xrefOffset = Buffer.byteLength(pdf, "ascii");
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-  return Buffer.from(pdf, "ascii");
 }
 
 let browser;
@@ -207,6 +189,14 @@ try {
     }
     throw new Error(`${label} 无法通过 Tab 到达`);
   };
+  const assertDialogFocus = async (dialog, label) => {
+    assert(await dialog.evaluate((element) => element.contains(document.activeElement)), `${label} 焦点逃离弹窗`);
+    return assertFocusedVisible(label);
+  };
+  const moveDialogFocus = async (dialog, key, label) => {
+    await page.keyboard.press(key);
+    return assertDialogFocus(dialog, label);
+  };
 
   await editor.fill("晨光纸页验证：记录今天的重要想法。");
   await page.getByRole("textbox", { name: "新待办" }).fill("整理项目进展");
@@ -263,9 +253,11 @@ try {
   await page.keyboard.press("Enter");
   const shareDialog = page.getByRole("dialog", { name: /分享/ });
   await shareDialog.waitFor();
-  await assertFocusedVisible("分享弹窗");
-  await page.keyboard.press("Tab");
-  assert(await shareDialog.evaluate((dialog) => dialog.contains(document.activeElement)), "分享弹窗未约束 Tab 焦点");
+  await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement));
+  await assertDialogFocus(shareDialog, "分享弹窗初始焦点");
+  await moveDialogFocus(shareDialog, "Shift+Tab", "分享弹窗反向边界环绕");
+  await moveDialogFocus(shareDialog, "Tab", "分享弹窗正向边界环绕");
+  await moveDialogFocus(shareDialog, "Tab", "分享弹窗正向遍历");
   await page.screenshot({ path: path.join(screenshotDir, "ui-share-modal.png") });
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "分享");
@@ -274,9 +266,11 @@ try {
   await focusByTab(settingsTrigger, "设置入口");
   await page.keyboard.press("Enter");
   await settingsDialog.waitFor();
-  await assertFocusedVisible("设置弹窗");
-  await page.keyboard.press("Tab");
-  assert(await settingsDialog.evaluate((dialog) => dialog.contains(document.activeElement)), "设置弹窗未约束 Tab 焦点");
+  await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement));
+  await assertDialogFocus(settingsDialog, "设置弹窗初始焦点");
+  await moveDialogFocus(settingsDialog, "Shift+Tab", "设置弹窗反向边界环绕");
+  await moveDialogFocus(settingsDialog, "Tab", "设置弹窗正向边界环绕");
+  await moveDialogFocus(settingsDialog, "Tab", "设置弹窗正向遍历");
   await page.screenshot({ path: path.join(screenshotDir, "ui-settings-modal.png") });
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "设置");
@@ -496,7 +490,11 @@ try {
       assert(bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), `PDF 第 ${index + 1} 页不是 PNG`);
       await fs.writeFile(path.join(artifactDir, `pdf-page-${index + 1}.png`), bytes);
     }
-    await fs.writeFile(path.join(artifactDir, "sample.pdf"), createVerificationPdf(command.args.pages.length));
+    await fs.writeFile(path.join(artifactDir, "frontend-pdf-layout.json"), JSON.stringify({
+      source: "browser-rendered-pages",
+      pageCount: command.args.pages.length,
+    }, null, 2), "utf8");
+    return { frontendLayoutPages: command.args.pages.length };
   }, page);
 
   await record(shareChecks, "PNG 图片", async () => {
@@ -551,7 +549,7 @@ try {
     share: { passed: shareChecks.filter((check) => check.passed).length, total: shareChecks.length },
     acceptance: { passed: acceptanceChecks.filter((check) => check.passed).length, total: acceptanceChecks.length },
     failed: allChecks.filter((check) => !check.passed),
-    artifacts: ["artifacts/sample.md", "artifacts/sample.pdf", "artifacts/sample.png", "artifacts/daynotes-bundle.html"],
+    artifacts: ["artifacts/sample.md", "artifacts/sample.pdf", "artifacts/sample.png", "artifacts/frontend-pdf-layout.json", "artifacts/daynotes-bundle.html"],
     screenshots: [
       "screenshots/editor-initial.png",
       "screenshots/editor-formatted.png",
@@ -565,7 +563,17 @@ try {
       "screenshots/ui-settings-modal.png",
       "screenshots/ui-save-error.png",
     ],
-    logs: ["logs/gui-verification.txt", "logs/agent-browser-console.txt", "logs/agent-browser-errors.txt"],
+    logs: [
+      "logs/frontend-tests.txt",
+      "logs/lint.txt",
+      "logs/build-bundle.txt",
+      "logs/complete-ui.txt",
+      "logs/rust-tests.txt",
+      "logs/tauri-build.txt",
+      "logs/gui-verification.txt",
+      "logs/agent-browser-console.txt",
+      "logs/agent-browser-errors.txt",
+    ],
   };
   await fs.writeFile(path.join(outputDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
   const report = `# DayNotes 完整验证报告\n\n生成时间：${summary.generatedAt}\n\n- 编辑器按钮：${summary.editor.passed}/${summary.editor.total}\n- 分享策略：${summary.share.passed}/${summary.share.total}\n- UI 验收：${summary.acceptance.passed}/${summary.acceptance.total}\n- 总体结果：${summary.passed ? "通过" : "失败"}\n\n## 编辑器矩阵\n\n${editorChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## 分享矩阵\n\n${shareChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## UI 验收矩阵\n\n${acceptanceChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## 全量命令日志\n\n${summary.logs.map((item) => `- \`${item}\``).join("\n")}\n\n## 导出产物\n\n${summary.artifacts.map((item) => `- \`${item}\``).join("\n")}\n`;

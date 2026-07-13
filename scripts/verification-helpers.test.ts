@@ -7,7 +7,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { verifyBundleManifest } from "./verify-bundle-size.mjs";
 import { attachBrowserErrorListeners } from "./verify-browser-errors.mjs";
-import { assertRequiredUiScreenshots, REQUIRED_UI_SCREENSHOTS } from "./verify-evidence.mjs";
+import {
+  assertBackendPdfEvidence,
+  assertRequiredCommandLogs,
+  assertRequiredUiScreenshots,
+  REQUIRED_COMMAND_LOGS,
+  REQUIRED_UI_SCREENSHOTS,
+} from "./verify-evidence.mjs";
 
 const temporaryDirectories: string[] = [];
 
@@ -80,5 +86,44 @@ describe("complete UI visual evidence", () => {
       expect(darkTheme).toContain(`${token}:`);
     }
     expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  });
+});
+
+describe("complete verification command evidence", () => {
+  it.each(REQUIRED_COMMAND_LOGS)("rejects a missing command log: %s", async ({ path: relativePath }) => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-command-logs-"));
+    temporaryDirectories.push(outputDir);
+    await mkdir(path.join(outputDir, "logs"), { recursive: true });
+    for (const required of REQUIRED_COMMAND_LOGS) {
+      if (required.path === relativePath) continue;
+      await writeFile(path.join(outputDir, required.path), required.exampleSuccess);
+    }
+
+    await expect(assertRequiredCommandLogs(outputDir)).rejects.toThrow(relativePath);
+  });
+
+  it.each(REQUIRED_COMMAND_LOGS)("rejects a command log without its success markers: %s", async (invalidLog) => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-command-logs-"));
+    temporaryDirectories.push(outputDir);
+    await mkdir(path.join(outputDir, "logs"), { recursive: true });
+    for (const required of REQUIRED_COMMAND_LOGS) {
+      await writeFile(path.join(outputDir, required.path), required === invalidLog ? "command started" : required.exampleSuccess);
+    }
+
+    await expect(assertRequiredCommandLogs(outputDir)).rejects.toThrow(invalidLog.path);
+  });
+
+  it("requires backend PDF provenance and matching browser/backend page counts", () => {
+    const valid = {
+      pdf: Buffer.from("%PDF-real-backend-artifact"),
+      pdfPageCount: 2,
+      renderedPageCount: 2,
+      layoutPageCount: 2,
+      rustLog: "test export_pdf::tests::exports_the_browser_rendered_pages_as_a_real_pdf_artifact ... ok\ntest result: ok. 12 passed; 0 failed",
+    };
+
+    expect(() => assertBackendPdfEvidence(valid)).not.toThrow();
+    expect(() => assertBackendPdfEvidence({ ...valid, rustLog: "test result: ok. 12 passed; 0 failed" })).toThrow(/backend PDF/i);
+    expect(() => assertBackendPdfEvidence({ ...valid, pdfPageCount: 1 })).toThrow(/page count/i);
   });
 });
