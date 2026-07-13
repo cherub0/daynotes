@@ -51,6 +51,54 @@ describe("useNoteSession loading", () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it("reports dirty, saving and saved for the current snapshot", async () => {
+    const pending = deferred<void>();
+    vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));
+    vi.mocked(api.saveNote).mockReturnValue(pending.promise);
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("ready"));
+    act(() => result.current.setContent("<p>changed</p>"));
+    expect(result.current.saveStatus).toBe("dirty");
+    let saving!: Promise<boolean>;
+    act(() => { saving = result.current.saveNow(); });
+    expect(result.current.saveStatus).toBe("saving");
+    pending.resolve();
+    await act(async () => saving);
+    expect(result.current.saveStatus).toBe("saved");
+  });
+
+  it("returns to dirty when content changes during an in-flight save", async () => {
+    const pending = deferred<void>();
+    vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));
+    vi.mocked(api.saveNote).mockReturnValue(pending.promise);
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn(), saveDelay: 2_000 }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("ready"));
+    act(() => result.current.setContent("<p>first</p>"));
+    let saving!: Promise<boolean>;
+    act(() => { saving = result.current.saveNow(); });
+    act(() => result.current.setContent("<p>second</p>"));
+    pending.resolve();
+    await act(async () => saving);
+    expect(result.current.saveStatus).toBe("dirty");
+  });
+
+  it("keeps visible content and retries the current load", async () => {
+    vi.mocked(api.getNote)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(note("2026-07-13", "<p>recovered</p>"));
+    const { result } = renderHook(() =>
+      useNoteSession({ initialDate: "2026-07-13", onError: vi.fn() }),
+    );
+    await waitFor(() => expect(result.current.loadStatus).toBe("error"));
+    await act(() => result.current.retryLoad());
+    expect(result.current.loadStatus).toBe("ready");
+    expect(result.current.content).toBe("<p>recovered</p>");
+  });
+
   it("keeps the newest date when an older request resolves last", async () => {
     const first = deferred<Note | null>();
     const second = deferred<Note | null>();

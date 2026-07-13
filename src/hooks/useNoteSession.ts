@@ -10,16 +10,22 @@ export interface UseNoteSessionOptions {
   saveDelay?: number;
 }
 
+export type SaveStatus = "saved" | "dirty" | "saving" | "error";
+export type LoadStatus = "loading" | "ready" | "error";
+
 export interface NoteSession {
   currentDate: string;
   content: string;
   todos: TodoItem[];
   noteDates: Set<string>;
   dirty: boolean;
+  saveStatus: SaveStatus;
+  loadStatus: LoadStatus;
   setContent: (content: string) => void;
   setTodos: (todos: TodoItem[]) => void;
   changeDate: (date: string) => Promise<void>;
   saveNow: () => Promise<boolean>;
+  retryLoad: () => Promise<void>;
 }
 
 export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseNoteSessionOptions): NoteSession {
@@ -28,6 +34,8 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
   const [todos, setTodosState] = useState<TodoItem[]>([]);
   const [noteDates, setNoteDates] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading");
   const currentDateRef = useRef(currentDate);
   const contentRef = useRef(content);
   const todosRef = useRef(todos);
@@ -71,24 +79,34 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
     };
   }, []);
 
-  useEffect(() => {
+  const loadDate = useCallback(async (date: string) => {
     const token = loadGuardRef.current.begin();
-    void api
-      .getNote(currentDate)
-      .then((loaded) => {
-        if (!loadGuardRef.current.isLatest(token)) return;
-        setContentState(loaded?.content ?? "");
-        setTodosState(parseTodos(loaded?.todos ?? "[]"));
-        dirtyRef.current = false;
-        setDirty(false);
-      })
-      .catch(() => {
-        if (loadGuardRef.current.isLatest(token)) onErrorRef.current("加载笔记失败");
-      });
-  }, [currentDate]);
+    setLoadStatus("loading");
+    try {
+      const loaded = await api.getNote(date);
+      if (!loadGuardRef.current.isLatest(token) || !mountedRef.current) return;
+      setContentState(loaded?.content ?? "");
+      setTodosState(parseTodos(loaded?.todos ?? "[]"));
+      dirtyRef.current = false;
+      setDirty(false);
+      setSaveStatus("saved");
+      setLoadStatus("ready");
+    } catch {
+      if (!loadGuardRef.current.isLatest(token) || !mountedRef.current) return;
+      setLoadStatus("error");
+      onErrorRef.current("加载笔记失败");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDate(currentDate);
+  }, [currentDate, loadDate]);
+
+  const retryLoad = useCallback(() => loadDate(currentDateRef.current), [loadDate]);
 
   const saveSnapshot = useCallback(
     async (date: string, html: string, serializedTodos: string): Promise<boolean> => {
+      if (mountedRef.current) setSaveStatus("saving");
       try {
         await api.saveNote(date, html, serializedTodos);
         if (
@@ -99,6 +117,9 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
         ) {
           dirtyRef.current = false;
           setDirty(false);
+          setSaveStatus("saved");
+        } else if (mountedRef.current && currentDateRef.current === date) {
+          setSaveStatus("dirty");
         }
         try {
           await refreshNoteDates();
@@ -107,7 +128,10 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
         }
         return true;
       } catch {
-        if (mountedRef.current) onErrorRef.current("保存失败");
+        if (mountedRef.current) {
+          setSaveStatus("error");
+          onErrorRef.current("保存失败");
+        }
         return false;
       }
     },
@@ -133,6 +157,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
     dirtyRef.current = true;
     setContentState(nextContent);
     setDirty(true);
+    setSaveStatus("dirty");
     scheduleSave();
   }, [scheduleSave]);
 
@@ -141,6 +166,7 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
     dirtyRef.current = true;
     setTodosState(nextTodos);
     setDirty(true);
+    setSaveStatus("dirty");
     scheduleSave();
   }, [scheduleSave]);
 
@@ -186,5 +212,18 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
     };
   }, [clearSaveTimer]);
 
-  return { currentDate, content, todos, noteDates, dirty, setContent, setTodos, changeDate, saveNow };
+  return {
+    currentDate,
+    content,
+    todos,
+    noteDates,
+    dirty,
+    saveStatus,
+    loadStatus,
+    setContent,
+    setTodos,
+    changeDate,
+    saveNow,
+    retryLoad,
+  };
 }
