@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+// @ts-expect-error Vitest runs in Node, but this frontend project does not install Node type declarations.
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CalendarPicker } from "./CalendarPicker";
 
@@ -82,5 +84,13 @@ describe("CalendarPicker", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("uses stable non-color cues for hover and selection without obscuring keyboard focus", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toMatch(/\.calendar-day:hover\s*{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--border-strong\)/);
+    expect(appCss).toMatch(/\.calendar-day\.selected\s*{[^}]*font-weight:\s*700[^}]*box-shadow:\s*inset 0 0 0 2px var\(--border-strong\)/);
+    expect(appCss).toMatch(/\.calendar-day:focus-visible\s*{[^}]*outline:\s*3px solid var\(--focus-ring\)[^}]*outline-offset:\s*2px/);
   });
 });
