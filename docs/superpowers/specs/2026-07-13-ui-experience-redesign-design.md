@@ -1,7 +1,7 @@
 # DayNotes UI Experience Redesign Design
 
 **Date:** 2026-07-13
-**Status:** Approved in conversation; written-spec review pending
+**Status:** Approved
 **Scope:** UI experience phase only
 
 ## 1. Goal
