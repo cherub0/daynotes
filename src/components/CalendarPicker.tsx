@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { getToday, formatDate } from "../lib/types";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
+import { formatDate, getToday, parseDate } from "../lib/types";
 
 interface CalendarPickerProps {
   currentDate: string;
@@ -10,91 +11,156 @@ interface CalendarPickerProps {
 
 const WEEKDAY_HEADERS = ["一", "二", "三", "四", "五", "六", "日"];
 
-export function CalendarPicker({ currentDate, noteDates, onSelect }: CalendarPickerProps) {
-  const today = getToday();
-  const [viewDate, setViewDate] = useState(() => {
-    const [y, m] = currentDate.split("-").map(Number);
-    return { year: y, month: m };
-  });
+function getYearMonth(dateStr: string) {
+  const date = parseDate(dateStr);
+  return { year: date.getFullYear(), month: date.getMonth() + 1 };
+}
 
+function addDays(dateStr: string, amount: number) {
+  const date = parseDate(dateStr);
+  date.setDate(date.getDate() + amount);
+  return formatDate(date);
+}
+
+function addMonths(dateStr: string, amount: number) {
+  const date = parseDate(dateStr);
+  const targetMonth = new Date(date.getFullYear(), date.getMonth() + amount, 1);
+  const lastDay = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+  targetMonth.setDate(Math.min(date.getDate(), lastDay));
+  return formatDate(targetMonth);
+}
+
+function getDateLabel(dateStr: string, isSelected: boolean, isToday: boolean, hasNote: boolean) {
+  const states = [isSelected ? "已选择" : "", isToday ? "今天" : "", hasNote ? "有笔记" : ""].filter(Boolean);
+  return states.length > 0 ? `${dateStr}，${states.join("，")}` : dateStr;
+}
+
+export function CalendarPicker({ currentDate, noteDates, onSelect, onClose }: CalendarPickerProps) {
+  const today = getToday();
+  const [viewDate, setViewDate] = useState(() => getYearMonth(currentDate));
+  const [focusedDate, setFocusedDate] = useState(currentDate);
+  const dayRefs = useRef(new Map<string, HTMLButtonElement>());
   const { year, month } = viewDate;
 
-  function goToPrevMonth() {
-    setViewDate((d) => (d.month === 1 ? { year: d.year - 1, month: 12 } : { ...d, month: d.month - 1 }));
-  }
-
-  function goToNextMonth() {
-    setViewDate((d) => (d.month === 12 ? { year: d.year + 1, month: 1 } : { ...d, month: d.month + 1 }));
-  }
-
-  // First day of month (0=Sunday in JS, we use 1=Monday)
-  const firstDay = new Date(year, month - 1, 1).getDay();
-  const firstDayOffset = firstDay === 0 ? 6 : firstDay - 1; // Convert to Monday=0
-
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const prevMonthDays = new Date(year, month - 1, 0).getDate();
-
-  const days: { day: number; type: "prev" | "current" | "next" }[] = [];
-
-  // Previous month days
-  for (let i = firstDayOffset - 1; i >= 0; i--) {
-    days.push({ day: prevMonthDays - i, type: "prev" });
-  }
-
-  // Current month days
-  for (let i = 1; i <= daysInMonth; i++) {
-    days.push({ day: i, type: "current" });
-  }
-
-  // Next month days to fill grid
-  const remaining = 42 - days.length; // 6 rows × 7
-  for (let i = 1; i <= remaining; i++) {
-    days.push({ day: i, type: "next" });
-  }
-
-  function getDateStr(day: number, type: "prev" | "current" | "next"): string {
-    if (type === "prev") {
-      const m = month === 1 ? 12 : month - 1;
-      const y = month === 1 ? year - 1 : year;
-      return formatDate(new Date(y, m - 1, day));
-    } else if (type === "next") {
-      const m = month === 12 ? 1 : month + 1;
-      const y = month === 12 ? year + 1 : year;
-      return formatDate(new Date(y, m - 1, day));
+  useEffect(() => {
+    function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
     }
-    return formatDate(new Date(year, month - 1, day));
+
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    dayRefs.current.get(focusedDate)?.focus();
+  }, [focusedDate, year, month]);
+
+  function moveFocus(nextDate: string) {
+    setFocusedDate(nextDate);
+    setViewDate(getYearMonth(nextDate));
   }
+
+  function moveFocusByMonth(amount: number) {
+    moveFocus(addMonths(focusedDate, amount));
+  }
+
+  function handleGridKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    let nextDate: string | undefined;
+
+    switch (event.key) {
+      case "ArrowLeft":
+        nextDate = addDays(focusedDate, -1);
+        break;
+      case "ArrowRight":
+        nextDate = addDays(focusedDate, 1);
+        break;
+      case "ArrowUp":
+        nextDate = addDays(focusedDate, -7);
+        break;
+      case "ArrowDown":
+        nextDate = addDays(focusedDate, 7);
+        break;
+      case "PageUp":
+        nextDate = addMonths(focusedDate, -1);
+        break;
+      case "PageDown":
+        nextDate = addMonths(focusedDate, 1);
+        break;
+      case "Enter":
+      case " ":
+        event.preventDefault();
+        onSelect(focusedDate);
+        return;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    moveFocus(nextDate);
+  }
+
+  const firstDay = new Date(year, month - 1, 1).getDay();
+  const firstDayOffset = firstDay === 0 ? 6 : firstDay - 1;
+  const gridStart = new Date(year, month - 1, 1 - firstDayOffset);
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    return {
+      dateStr: formatDate(date),
+      day: date.getDate(),
+      isOtherMonth: date.getMonth() !== month - 1,
+    };
+  });
 
   return (
-    <div className="calendar-popup">
+    <div className="calendar-popup" aria-label="选择日期">
       <div className="calendar-header">
-        <button className="nav-btn" onClick={goToPrevMonth}>◀</button>
-        <span>{year}年 {month}月</span>
-        <button className="nav-btn" onClick={goToNextMonth}>▶</button>
+        <button className="nav-btn" type="button" aria-label="上个月" onClick={() => moveFocusByMonth(-1)}>◀</button>
+        <span id="calendar-month-label">{year}年 {month}月</span>
+        <button className="nav-btn" type="button" aria-label="下个月" onClick={() => moveFocusByMonth(1)}>▶</button>
       </div>
 
-      <div className="calendar-grid">
-        {WEEKDAY_HEADERS.map((h) => (
-          <div key={h} className="calendar-day-header">{h}</div>
+      <div className="calendar-grid" role="grid" aria-labelledby="calendar-month-label" onKeyDown={handleGridKeyDown}>
+        <div className="calendar-row" role="row">
+          {WEEKDAY_HEADERS.map((header) => (
+            <div key={header} className="calendar-day-header" role="columnheader">{header}</div>
+          ))}
+        </div>
+
+        {Array.from({ length: 6 }, (_, rowIndex) => (
+          <div className="calendar-row" role="row" key={rowIndex}>
+            {days.slice(rowIndex * 7, rowIndex * 7 + 7).map((day) => {
+              const isToday = day.dateStr === today;
+              const isSelected = day.dateStr === currentDate;
+              const hasNote = noteDates.has(day.dateStr);
+
+              return (
+                <button
+                  key={day.dateStr}
+                  ref={(element) => {
+                    if (element) dayRefs.current.set(day.dateStr, element);
+                    else dayRefs.current.delete(day.dateStr);
+                  }}
+                  type="button"
+                  role="gridcell"
+                  className={`calendar-day${day.isOtherMonth ? " other-month" : ""}${isToday ? " today" : ""}${isSelected ? " selected" : ""}${hasNote ? " has-note" : ""}`}
+                  tabIndex={day.dateStr === focusedDate ? 0 : -1}
+                  aria-label={getDateLabel(day.dateStr, isSelected, isToday, hasNote)}
+                  aria-selected={isSelected}
+                  aria-current={isToday ? "date" : undefined}
+                  onFocus={() => setFocusedDate(day.dateStr)}
+                  onClick={() => onSelect(day.dateStr)}
+                >
+                  <span>{day.day}</span>
+                  {hasNote && <span className="calendar-note-marker" aria-hidden="true">•</span>}
+                </button>
+              );
+            })}
+          </div>
         ))}
-
-        {days.map((d, i) => {
-          const dateStr = getDateStr(d.day, d.type);
-          const isToday = dateStr === today;
-          const isSelected = dateStr === currentDate;
-          const hasNote = noteDates.has(dateStr);
-
-          return (
-            <div
-              key={i}
-              className={`calendar-day ${d.type === "prev" || d.type === "next" ? "other-month" : ""} ${isToday ? "today" : ""} ${isSelected ? "selected" : ""} ${hasNote ? "has-note" : ""}`}
-              onClick={() => onSelect(dateStr)}
-              title={dateStr}
-            >
-              {d.day}
-            </div>
-          );
-        })}
       </div>
     </div>
   );

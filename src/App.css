@@ -400,16 +400,16 @@
 .calendar-backdrop {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--surface-overlay);
 }
 
 .calendar-popup {
   position: relative;
-  background: var(--bg-primary);
+  background: var(--surface-raised);
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
-  padding: 16px;
+  padding: var(--space-4);
   width: 300px;
 }
 
@@ -417,7 +417,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .calendar-header span {
@@ -432,6 +432,10 @@
   text-align: center;
 }
 
+.calendar-row {
+  display: contents;
+}
+
 .calendar-day-header {
   font-size: 11px;
   color: var(--text-muted);
@@ -444,7 +448,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  font-family: inherit;
   font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
   position: relative;
@@ -460,25 +469,20 @@
 }
 .calendar-day.selected {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
 }
 .calendar-day.other-month {
   color: var(--text-muted);
 }
-.calendar-day.has-note::after {
-  content: '';
+.calendar-note-marker {
   position: absolute;
-  bottom: 2px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--accent);
+  bottom: 0;
+  color: var(--accent);
+  font-size: 16px;
+  line-height: 1;
 }
-.calendar-day.today.has-note::after {
-  bottom: 1px;
-}
-.calendar-day.selected.has-note::after {
-  background: #fff;
+.calendar-day.selected .calendar-note-marker {
+  color: var(--text-inverse);
 }
 
 /* ── Modal ───────────────────────── */

@@ -3,12 +3,22 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // @ts-expect-error Vitest runs in Node, but this frontend project does not install Node type declarations.
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DateHeaderProps } from "./DateHeader";
 import { DateHeader } from "./DateHeader";
 import { Toast } from "./Toast";
 
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const createProps = (overrides: Partial<DateHeaderProps> = {}): DateHeaderProps => ({
   currentDate: "2026-07-12",
@@ -66,6 +76,31 @@ describe("DateHeader", () => {
     expect(appCss).toContain('grid-template-areas: "navigation navigation" "status tools"');
     expect(appCss).toMatch(/@media \(max-width: 719px\)[\s\S]*\.date-tools\s*{[^}]*position:\s*static/);
     expect(appCss).toMatch(/@media \(max-width: 719px\)[\s\S]*\.load-state\s*{[^}]*position:\s*static/);
+  });
+
+  it("restores focus to the calendar trigger after Escape", () => {
+    render(<DateHeader {...createProps()} />);
+    const trigger = screen.getByRole("button", { name: "选择日期" });
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("grid")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("grid")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("selects through the existing callback and restores trigger focus", () => {
+    const onSelectDate = vi.fn();
+    render(<DateHeader {...createProps({ onSelectDate })} />);
+    const trigger = screen.getByRole("button", { name: "选择日期" });
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("gridcell", { name: /2026-07-13/ }));
+
+    expect(onSelectDate).toHaveBeenCalledWith("2026-07-13");
+    expect(screen.queryByRole("grid")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });
 

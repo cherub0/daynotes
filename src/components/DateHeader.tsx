@@ -38,9 +38,9 @@ export function DateHeader({
   const calendarTriggerRef = useRef<HTMLButtonElement>(null);
   const isToday = currentDate === getToday();
 
-  function closeCalendar(restoreFocus = true) {
+  function closeCalendar() {
     setShowCalendar(false);
-    if (restoreFocus) requestAnimationFrame(() => calendarTriggerRef.current?.focus());
+    requestAnimationFrame(() => calendarTriggerRef.current?.focus());
   }
 
   return (
@@ -72,12 +72,14 @@ export function DateHeader({
 
         <div className="date-tools">
           <IconButton
+            ref={calendarTriggerRef}
             label="选择日期"
             active={showCalendar}
             aria-expanded={showCalendar}
-            onClick={(event) => {
-              calendarTriggerRef.current = event.currentTarget;
-              setShowCalendar((visible) => !visible);
+            aria-controls={showCalendar ? "date-calendar-overlay" : undefined}
+            onClick={() => {
+              if (showCalendar) closeCalendar();
+              else setShowCalendar(true);
             }}
           >
             ▦
@@ -107,14 +109,14 @@ export function DateHeader({
       </div>
 
       {showCalendar && (
-        <div className="calendar-overlay">
+        <div className="calendar-overlay" id="date-calendar-overlay">
           <div className="calendar-backdrop" onClick={() => closeCalendar()} />
           <CalendarPicker
             currentDate={currentDate}
             noteDates={noteDates}
             onSelect={(date) => {
               onSelectDate(date);
-              closeCalendar(false);
+              closeCalendar();
             }}
             onClose={() => closeCalendar()}
           />
