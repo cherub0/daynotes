@@ -10,6 +10,7 @@ import { ModalShell } from "./ModalShell";
 describe("accessible overlays", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -45,6 +46,84 @@ describe("accessible overlays", () => {
     expect(document.activeElement).toBe(items[2]);
     fireEvent.keyDown(document, { key: "Home" });
     expect(document.activeElement).toBe(items[0]);
+  });
+
+  it("closes the menu on Tab without blocking normal forward focus", () => {
+    render(<><MenuPopover label="插入内容" triggerContent="＋"><button>插入图片</button></MenuPopover><button>下一项</button></>);
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    const next = screen.getByRole("button", { name: "下一项" });
+    const allowed = fireEvent.keyDown(document, { key: "Tab" });
+    expect(allowed).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+    next.focus();
+    expect(document.activeElement).toBe(next);
+  });
+
+  it("closes the menu on Shift+Tab without blocking normal reverse focus", () => {
+    render(<><button>上一项</button><MenuPopover label="插入内容" triggerContent="＋"><button>插入图片</button></MenuPopover></>);
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    const previous = screen.getByRole("button", { name: "上一项" });
+    const allowed = fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(allowed).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+    previous.focus();
+    expect(document.activeElement).toBe(previous);
+  });
+
+  it("opens a closed menu with ArrowDown and focuses its first enabled item", () => {
+    render(<MenuPopover label="插入内容" triggerContent="＋"><button disabled>不可用</button><button>第一项</button><button>最后项</button></MenuPopover>);
+    const trigger = screen.getByRole("button", { name: "插入内容" });
+    trigger.focus();
+    const allowed = fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(allowed).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "第一项" }));
+  });
+
+  it("opens a closed menu with ArrowUp and focuses its last enabled item", () => {
+    render(<MenuPopover label="插入内容" triggerContent="＋"><button>第一项</button><button aria-disabled="true">不可用</button><button>最后项</button></MenuPopover>);
+    const trigger = screen.getByRole("button", { name: "插入内容" });
+    trigger.focus();
+    const allowed = fireEvent.keyDown(trigger, { key: "ArrowUp" });
+    expect(allowed).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "最后项" }));
+  });
+
+  it("skips hidden menu items when opening and navigating", () => {
+    render(
+      <MenuPopover label="插入内容" triggerContent="＋">
+        <button hidden>hidden</button>
+        <button style={{ display: "none" }}>display</button>
+        <button style={{ visibility: "hidden" }}>visibility</button>
+        <button aria-hidden="true">aria</button>
+        <button inert>inert</button>
+        <button>可见一</button>
+        <button>可见二</button>
+      </MenuPopover>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    const first = screen.getByRole("menuitem", { name: "可见一" });
+    const second = screen.getByRole("menuitem", { name: "可见二" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("flattens Fragment children into direct menu items", () => {
+    render(
+      <MenuPopover label="插入内容" triggerContent="＋">
+        <><button>片段一</button><><button>片段二</button></></>
+      </MenuPopover>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "插入内容" }));
+    const menu = screen.getByRole("menu");
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["片段一", "片段二"]);
+    expect(Array.from(menu.children).every((child) => child.getAttribute("role") === "menuitem")).toBe(true);
+  });
+
+  it("rejects non-forwarding component wrappers instead of nesting interactive elements", () => {
+    function WrappedAction() { return <button>被包裹操作</button>; }
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(() => render(<MenuPopover label="插入内容" triggerContent="＋"><WrappedAction /></MenuPopover>)).toThrow(/direct DOM action elements/i);
   });
 
   it("closes a menu on an outside pointer event and restores focus after its default action", () => {
