@@ -10,6 +10,7 @@ export interface ModalShellProps {
   footer?: ReactNode;
   size?: "compact" | "default" | "wide";
   closeOnBackdrop?: boolean;
+  closeLabel?: string;
 }
 
 export function ModalShell({
@@ -19,6 +20,7 @@ export function ModalShell({
   footer,
   size = "default",
   closeOnBackdrop = true,
+  closeLabel = "关闭",
 }: ModalShellProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -60,7 +62,7 @@ export function ModalShell({
       >
         <header className="ui-modal__header">
           <h2 id={titleId}>{title}</h2>
-          <IconButton label="关闭" variant="subtle" onClick={onClose}>×</IconButton>
+          <IconButton label={closeLabel} variant="subtle" onClick={onClose}>×</IconButton>
         </header>
         <div className="ui-modal__content">{children}</div>
         {footer && <footer className="ui-modal__footer">{footer}</footer>}

@@ -2,6 +2,10 @@ import { useState } from "react";
 import type { AppSettings, EmailSettings } from "../lib/types";
 import { testEmailSettings } from "../lib/tauri";
 import { validateEmailSettings } from "../lib/emailValidation";
+import { Button } from "./ui/Button";
+import { ModalShell } from "./ui/ModalShell";
+import { SegmentedControl } from "./ui/SegmentedControl";
+import { StatusBadge } from "./ui/StatusBadge";
 
 interface SettingsModalProps {
   settings: AppSettings | null;
@@ -87,11 +91,18 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-backdrop" />
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
-        <h2>⚙ 设置</h2>
+    <ModalShell
+      title="设置"
+      onClose={onClose}
+      closeLabel="关闭设置"
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={handleSave}>保存设置</Button>
+        </>
+      )}
+    >
+      <div className="settings-modal">
 
         {/* ── Email Settings ── */}
         <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, marginTop: 4, color: "var(--accent)" }}>
@@ -192,24 +203,21 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <button
-            className="btn btn-secondary"
+          <Button
+            variant="secondary"
             onClick={handleTestEmail}
             disabled={testEmailStatus === "sending"}
           >
             {testEmailStatus === "sending" ? "发送中…" : "发送测试邮件"}
-          </button>
-          {testEmailMessage && (
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 12,
-                color: testEmailStatus === "success" ? "var(--accent)" : "#d64545",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {testEmailMessage}
-            </div>
+          </Button>
+          {testEmailStatus === "sending" && (
+            <div className="settings-test-status"><StatusBadge status="saving">正在发送测试邮件…</StatusBadge></div>
+          )}
+          {testEmailMessage && testEmailStatus === "success" && (
+            <div className="settings-test-status"><StatusBadge status="saved">{testEmailMessage}</StatusBadge></div>
+          )}
+          {testEmailMessage && testEmailStatus === "error" && (
+            <div className="settings-test-status"><StatusBadge status="error">{testEmailMessage}</StatusBadge></div>
           )}
         </div>
 
@@ -219,15 +227,16 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </h3>
 
         <div className="form-group">
-          <label>主题</label>
-          <select
+          <SegmentedControl
+            label="主题"
             value={local.theme}
-            onChange={(e) => setLocal({ ...local, theme: e.target.value as "light" | "dark" | "system" })}
-          >
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
+            options={[
+              { value: "system", label: "跟随系统" },
+              { value: "light", label: "浅色" },
+              { value: "dark", label: "深色" },
+            ]}
+            onChange={(theme) => setLocal({ ...local, theme })}
+          />
         </div>
 
         <div className="form-group">
@@ -242,13 +251,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
           />
         </div>
 
-        {/* ── Actions ── */}
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={onClose}>取消</button>
-          <button className="btn btn-primary" onClick={handleSave}>保存设置</button>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 

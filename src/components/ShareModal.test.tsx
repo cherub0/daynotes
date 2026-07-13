@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShareModal } from "./ShareModal";
 
 const { saveMock, exportPdfPagesMock, renderPdfPagesMock } = vi.hoisted(() => ({
@@ -32,6 +32,8 @@ describe("ShareModal PDF export", () => {
     });
   });
 
+  afterEach(cleanup);
+
   it("saves a real PDF through the native exporter", async () => {
     const onClose = vi.fn();
     const onToast = vi.fn();
@@ -59,5 +61,21 @@ describe("ShareModal PDF export", () => {
     );
     expect(onToast).toHaveBeenCalledWith("已导出 PDF：D:\\exports\\DayNotes-2026-07-11.pdf");
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("exposes the shared dialog semantics and a specific close action", () => {
+    render(
+      <ShareModal
+        currentDate="2026-07-11"
+        content="<p>分享内容</p>"
+        todos={[]}
+        onClose={() => undefined}
+        onToast={() => undefined}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: /分享/ });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(screen.getByRole("button", { name: "关闭分享" })).not.toBeNull();
   });
 });

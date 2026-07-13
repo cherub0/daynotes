@@ -708,58 +708,11 @@
 
 /* ── Modal ───────────────────────── */
 
-.modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-backdrop {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.modal-content {
-  position: relative;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  padding: 24px;
-  width: 480px;
-  max-height: 80vh;
-  overflow-y: auto;
-}
-
-.modal-content h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.modal-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  font-size: 18px;
-  color: var(--text-secondary);
-}
-
 .form-group {
   margin-bottom: 14px;
 }
 
-.form-group label {
+.form-group > label {
   display: block;
   font-size: 12px;
   font-weight: 500;
@@ -767,8 +720,8 @@
   margin-bottom: 4px;
 }
 
-.form-group input,
-.form-group select {
+.form-group > input,
+.form-group > select {
   width: 100%;
 }
 
@@ -795,40 +748,18 @@
   accent-color: var(--accent);
 }
 
-.btn {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 500;
-  transition: all var(--transition);
+.settings-test-status,
+.share-export-status {
+  margin-top: var(--space-3);
 }
 
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-.btn-primary:hover {
-  background: var(--accent-hover);
+.settings-test-status {
+  white-space: pre-wrap;
 }
 
-.btn-secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-.btn-secondary:hover {
-  background: var(--border-color);
-}
-
-.btn-danger {
-  background: var(--danger);
-  color: #fff;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
+.lazy-modal-status,
+.lazy-modal-message {
+  color: var(--text-secondary);
 }
 
 /* ── Share Card ──────────────────── */
@@ -840,14 +771,18 @@
   padding: 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
-  margin-bottom: 8px;
   cursor: pointer;
   transition: all var(--transition);
   width: 100%;
   text-align: left;
 }
+.share-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
 .share-option:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-inset);
   border-color: var(--accent);
 }
 
@@ -913,7 +848,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary);
+  background: var(--surface-paper);
   border-radius: var(--radius);
 }
 
@@ -949,6 +884,31 @@
   box-shadow: var(--shadow-lg);
   z-index: 300;
   animation: toast-in var(--motion-normal) var(--ease-standard);
+}
+
+@media (max-width: 719px) {
+  .ui-modal__footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .ui-modal__footer .ui-button {
+    width: 100%;
+  }
+
+  .form-row {
+    flex-direction: column;
+  }
+
+  .ui-segmented__options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .ui-segmented__option span {
+    text-align: center;
+  }
 }
 
 .toast--warning { border-left-color: var(--warning); }
