@@ -7,6 +7,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { verifyBundleManifest } from "./verify-bundle-size.mjs";
 import { attachBrowserErrorListeners } from "./verify-browser-errors.mjs";
+import {
+  assertBackendPdfEvidence,
+  assertRequiredCommandLogs,
+  assertRequiredUiScreenshots,
+  REQUIRED_COMMAND_LOGS,
+  REQUIRED_UI_SCREENSHOTS,
+} from "./verify-evidence.mjs";
 
 const temporaryDirectories: string[] = [];
 
@@ -52,5 +59,78 @@ describe("complete UI browser error evidence", () => {
 
     page.emit("pageerror", new Error("bootstrap crashed"));
     expect(messages).toEqual(["[error] bootstrap crashed"]);
+  });
+});
+
+describe("complete UI visual evidence", () => {
+  it.each(REQUIRED_UI_SCREENSHOTS)("rejects evidence missing %s", async (missingPath) => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-evidence-"));
+    temporaryDirectories.push(outputDir);
+    for (const relativePath of REQUIRED_UI_SCREENSHOTS) {
+      if (relativePath === missingPath) continue;
+      const absolutePath = path.join(outputDir, relativePath);
+      await mkdir(path.dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, "screenshot");
+    }
+
+    await expect(assertRequiredUiScreenshots(outputDir)).rejects.toThrow(missingPath);
+  });
+
+  it("defines semantic surface and focus tokens in both themes plus reduced motion", async () => {
+    const css = await import("node:fs/promises").then(({ readFile }) => readFile(path.join(process.cwd(), "src/index.css"), "utf8"));
+    const lightTheme = css.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+    const darkTheme = css.match(/\[data-theme=["']dark["']\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+
+    for (const token of ["--surface-app", "--surface-paper", "--focus-ring"]) {
+      expect(lightTheme).toContain(`${token}:`);
+      expect(darkTheme).toContain(`${token}:`);
+    }
+    expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  });
+});
+
+describe("complete verification command evidence", () => {
+  it("routes the standard verify entry through the logged orchestration without recursion", async () => {
+    const packageJson = JSON.parse(await import("node:fs/promises").then(({ readFile }) => readFile(path.join(process.cwd(), "package.json"), "utf8")));
+
+    expect(packageJson.scripts.verify).toBe("npm run verify:logged");
+    expect(packageJson.scripts["verify:logged"]).not.toContain("npm run verify");
+  });
+
+  it.each(REQUIRED_COMMAND_LOGS)("rejects a missing command log: %s", async ({ path: relativePath }) => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-command-logs-"));
+    temporaryDirectories.push(outputDir);
+    await mkdir(path.join(outputDir, "logs"), { recursive: true });
+    for (const required of REQUIRED_COMMAND_LOGS) {
+      if (required.path === relativePath) continue;
+      await writeFile(path.join(outputDir, required.path), required.exampleSuccess);
+    }
+
+    await expect(assertRequiredCommandLogs(outputDir)).rejects.toThrow(relativePath);
+  });
+
+  it.each(REQUIRED_COMMAND_LOGS)("rejects a command log without its success markers: %s", async (invalidLog) => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), "daynotes-command-logs-"));
+    temporaryDirectories.push(outputDir);
+    await mkdir(path.join(outputDir, "logs"), { recursive: true });
+    for (const required of REQUIRED_COMMAND_LOGS) {
+      await writeFile(path.join(outputDir, required.path), required === invalidLog ? "command started" : required.exampleSuccess);
+    }
+
+    await expect(assertRequiredCommandLogs(outputDir)).rejects.toThrow(invalidLog.path);
+  });
+
+  it("requires backend PDF provenance and matching browser/backend page counts", () => {
+    const valid = {
+      pdf: Buffer.from("%PDF-real-backend-artifact"),
+      pdfPageCount: 2,
+      renderedPageCount: 2,
+      layoutPageCount: 2,
+      rustLog: "test export_pdf::tests::exports_the_browser_rendered_pages_as_a_real_pdf_artifact ... ok\ntest result: ok. 12 passed; 0 failed",
+    };
+
+    expect(() => assertBackendPdfEvidence(valid)).not.toThrow();
+    expect(() => assertBackendPdfEvidence({ ...valid, rustLog: "test result: ok. 12 passed; 0 failed" })).toThrow(/backend PDF/i);
+    expect(() => assertBackendPdfEvidence({ ...valid, pdfPageCount: 1 })).toThrow(/page count/i);
   });
 });

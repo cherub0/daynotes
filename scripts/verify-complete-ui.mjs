@@ -12,11 +12,17 @@ const baseUrl = "http://daynotes.local/";
 const distDir = path.join(root, "dist");
 const editorChecks = [];
 const shareChecks = [];
+const acceptanceChecks = [];
 
 await Promise.all([
   fs.mkdir(screenshotDir, { recursive: true }),
   fs.mkdir(artifactDir, { recursive: true }),
   fs.mkdir(logDir, { recursive: true }),
+]);
+await Promise.all([
+  fs.rm(path.join(artifactDir, "sample.pdf"), { force: true }),
+  fs.rm(path.join(logDir, "rust-tests.txt"), { force: true }),
+  fs.rm(path.join(logDir, "tauri-build.txt"), { force: true }),
 ]);
 
 async function writeSelfContainedBundle() {
@@ -86,6 +92,7 @@ try {
       notes: {},
       dialogQueue: [],
       clipboard: [],
+      rejectNextSave: false,
       settings: {
         email: { smtp_host: "smtp.qq.com", smtp_port: 465, username: "", password: "", recipient: "", send_time: "08:00", weekdays_only: true, enabled: false },
         theme: "light",
@@ -118,7 +125,14 @@ try {
         if (cmd === "get_settings") return state.settings;
         if (cmd === "get_notes_dates") return Object.keys(state.notes);
         if (cmd === "get_note") return state.notes[args.date] || null;
-        if (cmd === "save_note") { state.notes[args.date] = args; return null; }
+        if (cmd === "save_note") {
+          if (state.rejectNextSave) {
+            state.rejectNextSave = false;
+            throw new Error("验证保存失败");
+          }
+          state.notes[args.date] = args;
+          return null;
+        }
         if (cmd === "save_settings") { state.settings = args.settings; return null; }
         if (cmd === "plugin:dialog|save") {
           if (state.dialogQueue.length) return state.dialogQueue.shift();
@@ -141,6 +155,146 @@ try {
   const editor = page.locator(".ProseMirror");
   await editor.waitFor({ state: "visible" });
   await page.screenshot({ path: path.join(screenshotDir, "editor-initial.png"), fullPage: true });
+  const toolbar = (name) => page.getByRole("button", { name, exact: true });
+
+  const assertFocusedVisible = async (label) => {
+    const focusStyle = await page.evaluate(() => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return null;
+      const style = getComputedStyle(active);
+      return {
+        tag: active.tagName,
+        name: active.getAttribute("aria-label") || active.textContent?.trim() || "",
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth,
+        boxShadow: style.boxShadow,
+      };
+    });
+    assert(focusStyle, `${label} 没有活动焦点`);
+    const hasOutline = focusStyle.outlineStyle !== "none" && Number.parseFloat(focusStyle.outlineWidth) > 0;
+    const hasShadow = focusStyle.boxShadow !== "none";
+    assert(hasOutline || hasShadow, `${label} 焦点不可见：${JSON.stringify(focusStyle)}`);
+    return focusStyle;
+  };
+  const focusByTab = async (target, label) => {
+    await page.evaluate(() => {
+      document.body.tabIndex = -1;
+      document.body.focus();
+    });
+    for (let index = 0; index < 80; index += 1) {
+      await page.keyboard.press("Tab");
+      if (await target.evaluate((element) => element === document.activeElement).catch(() => false)) {
+        return assertFocusedVisible(label);
+      }
+    }
+    throw new Error(`${label} 无法通过 Tab 到达`);
+  };
+  const assertDialogFocus = async (dialog, label) => {
+    assert(await dialog.evaluate((element) => element.contains(document.activeElement)), `${label} 焦点逃离弹窗`);
+    return assertFocusedVisible(label);
+  };
+  const moveDialogFocus = async (dialog, key, label) => {
+    await page.keyboard.press(key);
+    return assertDialogFocus(dialog, label);
+  };
+
+  await editor.fill("晨光纸页验证：记录今天的重要想法。");
+  await page.getByRole("textbox", { name: "新待办" }).fill("整理项目进展");
+  await page.getByRole("textbox", { name: "新待办" }).press("Enter");
+  await page.getByRole("textbox", { name: "新待办" }).fill("回顾明日计划");
+  await page.getByRole("textbox", { name: "新待办" }).press("Enter");
+  await page.getByRole("button", { name: "完成待办：整理项目进展" }).click();
+  await page.screenshot({ path: path.join(screenshotDir, "ui-light-main.png") });
+  await page.screenshot({ path: path.join(screenshotDir, "ui-todo-progress.png") });
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "设置" });
+  await settingsDialog.waitFor();
+  await settingsDialog.getByRole("radio", { name: "深色" }).check();
+  await settingsDialog.getByRole("button", { name: "保存设置" }).click();
+  await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "dark");
+  await page.locator(".toast").waitFor({ state: "hidden" });
+  await page.screenshot({ path: path.join(screenshotDir, "ui-dark-main.png") });
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await settingsDialog.waitFor();
+  await settingsDialog.getByRole("radio", { name: "浅色" }).check();
+  await settingsDialog.getByRole("button", { name: "保存设置" }).click();
+  await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") !== "dark");
+  await page.locator(".toast").waitFor({ state: "hidden" });
+  await page.setViewportSize({ width: 700, height: 900 });
+  const horizontalMetrics = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  assert(horizontalMetrics.scrollWidth === horizontalMetrics.clientWidth, `窄屏产生横向滚动：${JSON.stringify(horizontalMetrics)}`);
+  await page.screenshot({ path: path.join(screenshotDir, "ui-narrow-main.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  await page.keyboard.press("Control+S");
+  await page.getByText("已保存", { exact: true }).first().waitFor();
+  await page.locator(".toast").waitFor({ state: "hidden" });
+  const calendarTrigger = page.getByRole("button", { name: "选择日期", exact: true });
+  await focusByTab(calendarTrigger, "日历入口");
+  await page.keyboard.press("Enter");
+  const focusedCalendarDay = page.locator(".calendar-day:focus");
+  await focusedCalendarDay.waitFor();
+  assert((await focusedCalendarDay.getAttribute("aria-label"))?.includes("有笔记"), "日历焦点日期未标记有笔记");
+  await assertFocusedVisible("日历日期");
+  await page.screenshot({ path: path.join(screenshotDir, "ui-calendar-focus.png") });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "选择日期");
+
+  await focusByTab(page.getByRole("button", { name: "立即发送今日邮件", exact: true }), "页头操作");
+  await focusByTab(page.getByRole("button", { name: "加粗 (Ctrl+B)", exact: true }), "编辑工具栏");
+
+  const shareTrigger = page.getByRole("button", { name: "分享", exact: true });
+  await focusByTab(shareTrigger, "分享入口");
+  await page.keyboard.press("Enter");
+  const shareDialog = page.getByRole("dialog", { name: /分享/ });
+  await shareDialog.waitFor();
+  await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement));
+  await assertDialogFocus(shareDialog, "分享弹窗初始焦点");
+  await moveDialogFocus(shareDialog, "Shift+Tab", "分享弹窗反向边界环绕");
+  await moveDialogFocus(shareDialog, "Tab", "分享弹窗正向边界环绕");
+  await moveDialogFocus(shareDialog, "Tab", "分享弹窗正向遍历");
+  await page.screenshot({ path: path.join(screenshotDir, "ui-share-modal.png") });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "分享");
+
+  const settingsTrigger = page.getByRole("button", { name: "设置", exact: true });
+  await focusByTab(settingsTrigger, "设置入口");
+  await page.keyboard.press("Enter");
+  await settingsDialog.waitFor();
+  await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement));
+  await assertDialogFocus(settingsDialog, "设置弹窗初始焦点");
+  await moveDialogFocus(settingsDialog, "Shift+Tab", "设置弹窗反向边界环绕");
+  await moveDialogFocus(settingsDialog, "Tab", "设置弹窗正向边界环绕");
+  await moveDialogFocus(settingsDialog, "Tab", "设置弹窗正向遍历");
+  await page.screenshot({ path: path.join(screenshotDir, "ui-settings-modal.png") });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "设置");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const transitionSeconds = await toolbar("加粗 (Ctrl+B)").evaluate((button) => getComputedStyle(button).transitionDuration
+    .split(",")
+    .map((duration) => duration.trim().endsWith("ms") ? Number.parseFloat(duration) / 1000 : Number.parseFloat(duration)));
+  assert(transitionSeconds.every((duration) => duration <= 0.001), `减少动态效果未生效：${transitionSeconds.join(", ")}s`);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  await page.evaluate(() => { window.__verifyState.rejectNextSave = true; });
+  await editor.fill("保存失败视觉验证");
+  await page.keyboard.press("Control+S");
+  await page.getByLabel("编辑工具栏").getByText("保存失败", { exact: true }).waitFor();
+  await page.getByLabel("编辑工具栏").getByRole("button", { name: "重试", exact: true }).waitFor();
+  await page.screenshot({ path: path.join(screenshotDir, "ui-save-error.png") });
+
+  acceptanceChecks.push(
+    { name: "窄屏无横向滚动", passed: true, details: horizontalMetrics },
+    { name: "键盘焦点可见且可恢复", passed: true, details: null },
+    { name: "减少动态效果", passed: true, details: transitionSeconds },
+    { name: "八种视觉状态", passed: true, details: null },
+  );
 
   const resetEditor = async (text = "验证文本") => {
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -152,7 +306,14 @@ try {
     await editor.click();
     await page.keyboard.press("Control+A");
   };
-  const toolbar = (title) => page.locator(`button[title="${title}"]`);
+  const clickEditorCommand = async (name, location = "toolbar") => {
+    if (location === "insert") {
+      await page.getByRole("button", { name: "插入内容", exact: true }).click();
+      await page.getByRole("menu", { name: "插入内容" }).getByText(name, { exact: true }).click();
+      return;
+    }
+    await toolbar(name).click();
+  };
 
   for (const [name, title, selector] of [
     ["加粗", "加粗 (Ctrl+B)", "strong"],
@@ -162,7 +323,7 @@ try {
     ["高亮", "高亮", "mark"],
   ]) {
     await record(editorChecks, name, async () => {
-      await resetEditor(); await selectAll(); await toolbar(title).click();
+      await resetEditor(); await selectAll(); await clickEditorCommand(title);
       assert(await editor.locator(selector).count() === 1, `${name} 未生成 ${selector}`);
     }, page);
   }
@@ -174,20 +335,20 @@ try {
     ["引用", "引用", "blockquote"],
   ]) {
     await record(editorChecks, name, async () => {
-      await resetEditor(); await toolbar(title).click();
+      await resetEditor(); await clickEditorCommand(title);
       assert(await editor.locator(selector).count() === 1, `${name} 未生成 ${selector}`);
     }, page);
   }
 
   await record(editorChecks, "代码块及语言", async () => {
     await resetEditor("const value = 1;");
-    await toolbar("代码块").click();
+    await clickEditorCommand("代码块", "insert");
     await page.getByRole("button", { name: "TypeScript", exact: true }).click();
     assert(await editor.locator('pre code[class*="language-typescript"]').count() === 1, "代码块语言未设置为 TypeScript");
   }, page);
 
   await record(editorChecks, "网页链接", async () => {
-    await resetEditor("OpenAI"); await selectAll(); await toolbar("插入链接").click();
+    await resetEditor("OpenAI"); await selectAll(); await clickEditorCommand("插入链接", "insert");
     await page.getByRole("button", { name: /网页链接/ }).click();
     await page.getByPlaceholder("https://example.com").fill("openai.com");
     await page.getByRole("button", { name: "确定", exact: true }).click();
@@ -195,7 +356,7 @@ try {
   }, page);
 
   await record(editorChecks, "本地文件链接", async () => {
-    await resetEditor(); await toolbar("插入链接").click();
+    await resetEditor(); await clickEditorCommand("插入链接", "insert");
     await page.getByRole("button", { name: /本地文件/ }).click();
     const href = await editor.locator("a").getAttribute("href");
     assert(href?.startsWith("file:///C:/") && href.includes("%E9%AA%8C%E8%AF%81"), `本地链接异常：${href}`);
@@ -204,13 +365,13 @@ try {
   await record(editorChecks, "图片 URL", async () => {
     await resetEditor();
     page.once("dialog", (dialog) => dialog.accept("https://example.com/image.png"));
-    await toolbar("插入图片").click();
+    await clickEditorCommand("插入图片", "insert");
     await page.getByRole("button", { name: /图片链接/ }).click();
     assert((await editor.locator("img:not(.ProseMirror-separator)").getAttribute("src")) === "https://example.com/image.png", "图片 URL 未插入");
   }, page);
 
   await record(editorChecks, "本地图片", async () => {
-    await resetEditor(); await toolbar("插入图片").click();
+    await resetEditor(); await clickEditorCommand("插入图片", "insert");
     await page.getByRole("button", { name: /本地文件/ }).click();
     await page.locator('input[type="file"]').setInputFiles({
       name: "pixel.png",
@@ -221,7 +382,7 @@ try {
   }, page);
 
   await record(editorChecks, "插入表格", async () => {
-    await resetEditor(); await toolbar("插入表格").click();
+    await resetEditor(); await clickEditorCommand("插入表格", "insert");
     await page.getByRole("button", { name: "2 行 2 列", exact: true }).click();
     assert(await editor.locator("table tr").count() === 2 && await editor.locator("table tr").first().locator("th,td").count() === 2, "2x2 表格未插入");
   }, page);
@@ -229,7 +390,7 @@ try {
   const tableAction = async (name, title, expectedRows, expectedCols) => {
     await record(editorChecks, name, async () => {
       await editor.locator("table td, table th").first().click();
-      await toolbar(title).click();
+      await clickEditorCommand(title);
       const rows = await editor.locator("table tr").count();
       const cols = rows ? await editor.locator("table tr").first().locator("th,td").count() : 0;
       assert(rows === expectedRows && cols === expectedCols, `${name} 后为 ${rows}x${cols}`);
@@ -242,17 +403,17 @@ try {
   await tableAction("删除当前行", "删除当前行", 3, 4);
   await tableAction("删除当前列", "删除当前列", 3, 3);
   await record(editorChecks, "删除表格", async () => {
-    await editor.locator("table td, table th").first().click(); await toolbar("删除表格").click();
+    await editor.locator("table td, table th").first().click(); await clickEditorCommand("删除表格");
     assert(await editor.locator("table").count() === 0, "表格未删除");
   }, page);
 
   await record(editorChecks, "撤销", async () => {
     await resetEditor("撤销前"); await editor.press("End"); await editor.type("-新增");
-    await toolbar("撤销 (Ctrl+Z)").click();
+    await clickEditorCommand("撤销 (Ctrl+Z)");
     assert(!(await editor.textContent()).includes("新增"), "撤销未移除新增文本");
   }, page);
   await record(editorChecks, "重做", async () => {
-    await toolbar("重做 (Ctrl+Y)").click();
+    await clickEditorCommand("重做 (Ctrl+Y)");
     assert((await editor.textContent()).includes("新增"), "重做未恢复新增文本");
   }, page);
 
@@ -329,6 +490,11 @@ try {
       assert(bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), `PDF 第 ${index + 1} 页不是 PNG`);
       await fs.writeFile(path.join(artifactDir, `pdf-page-${index + 1}.png`), bytes);
     }
+    await fs.writeFile(path.join(artifactDir, "frontend-pdf-layout.json"), JSON.stringify({
+      source: "browser-rendered-pages",
+      pageCount: command.args.pages.length,
+    }, null, 2), "utf8");
+    return { frontendLayoutPages: command.args.pages.length };
   }, page);
 
   await record(shareChecks, "PNG 图片", async () => {
@@ -361,7 +527,7 @@ try {
 
   await openShare();
   await page.screenshot({ path: path.join(screenshotDir, "share-modal.png"), fullPage: true });
-  await page.locator(".modal-close").click();
+  await page.getByRole("button", { name: "关闭分享", exact: true }).click();
 
   await fs.writeFile(path.join(logDir, "gui-verification.txt"), "Playwright served the production dist bundle through an in-process route.\n", "utf8");
   await fs.writeFile(path.join(logDir, "agent-browser-console.txt"), `${consoleMessages.join("\n")}\n`, "utf8");
@@ -373,19 +539,44 @@ try {
   await fs.writeFile(path.join(outputDir, "editor-matrix.json"), JSON.stringify(editorChecks, null, 2), "utf8");
   await fs.writeFile(path.join(outputDir, "share-matrix.json"), JSON.stringify(shareChecks, null, 2), "utf8");
 
-  const allChecks = [...editorChecks, ...shareChecks];
+  assert(editorChecks.length >= 27, `编辑器检查数下降为 ${editorChecks.length}`);
+  assert(shareChecks.length === 7, `分享检查数应为 7，实际 ${shareChecks.length}`);
+  const allChecks = [...editorChecks, ...shareChecks, ...acceptanceChecks];
   const summary = {
     generatedAt: new Date().toISOString(),
     passed: allChecks.every((check) => check.passed),
     editor: { passed: editorChecks.filter((check) => check.passed).length, total: editorChecks.length },
     share: { passed: shareChecks.filter((check) => check.passed).length, total: shareChecks.length },
+    acceptance: { passed: acceptanceChecks.filter((check) => check.passed).length, total: acceptanceChecks.length },
     failed: allChecks.filter((check) => !check.passed),
-    artifacts: ["artifacts/sample.md", "artifacts/sample.pdf", "artifacts/sample.png", "artifacts/daynotes-bundle.html"],
-    screenshots: ["screenshots/editor-initial.png", "screenshots/editor-formatted.png", "screenshots/share-modal.png", "screenshots/agent-browser-initial.png", "screenshots/agent-browser-formatted.png", "screenshots/agent-browser-share-modal.png"],
-    logs: ["logs/frontend-tests.txt", "logs/lint.txt", "logs/build.txt", "logs/rust-tests.txt", "logs/complete-ui.txt", "logs/agent-browser-console.txt", "logs/agent-browser-errors.txt"],
+    artifacts: ["artifacts/sample.md", "artifacts/sample.pdf", "artifacts/sample.png", "artifacts/frontend-pdf-layout.json", "artifacts/daynotes-bundle.html"],
+    screenshots: [
+      "screenshots/editor-initial.png",
+      "screenshots/editor-formatted.png",
+      "screenshots/share-modal.png",
+      "screenshots/ui-light-main.png",
+      "screenshots/ui-dark-main.png",
+      "screenshots/ui-narrow-main.png",
+      "screenshots/ui-calendar-focus.png",
+      "screenshots/ui-todo-progress.png",
+      "screenshots/ui-share-modal.png",
+      "screenshots/ui-settings-modal.png",
+      "screenshots/ui-save-error.png",
+    ],
+    logs: [
+      "logs/frontend-tests.txt",
+      "logs/lint.txt",
+      "logs/build-bundle.txt",
+      "logs/complete-ui.txt",
+      "logs/rust-tests.txt",
+      "logs/tauri-build.txt",
+      "logs/gui-verification.txt",
+      "logs/agent-browser-console.txt",
+      "logs/agent-browser-errors.txt",
+    ],
   };
   await fs.writeFile(path.join(outputDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
-  const report = `# DayNotes 完整验证报告\n\n生成时间：${summary.generatedAt}\n\n- 编辑器按钮：${summary.editor.passed}/${summary.editor.total}\n- 分享策略：${summary.share.passed}/${summary.share.total}\n- 总体结果：${summary.passed ? "通过" : "失败"}\n\n## 编辑器矩阵\n\n${editorChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## 分享矩阵\n\n${shareChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## 全量命令日志\n\n${summary.logs.map((item) => `- \`${item}\``).join("\n")}\n\n## 导出产物\n\n${summary.artifacts.map((item) => `- \`${item}\``).join("\n")}\n`;
+  const report = `# DayNotes 完整验证报告\n\n生成时间：${summary.generatedAt}\n\n- 编辑器按钮：${summary.editor.passed}/${summary.editor.total}\n- 分享策略：${summary.share.passed}/${summary.share.total}\n- UI 验收：${summary.acceptance.passed}/${summary.acceptance.total}\n- 总体结果：${summary.passed ? "通过" : "失败"}\n\n## 编辑器矩阵\n\n${editorChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## 分享矩阵\n\n${shareChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## UI 验收矩阵\n\n${acceptanceChecks.map((check) => `- [${check.passed ? "x" : " "}] ${check.name}${check.passed ? "" : `：${check.details}`}`).join("\n")}\n\n## 全量命令日志\n\n${summary.logs.map((item) => `- \`${item}\``).join("\n")}\n\n## 导出产物\n\n${summary.artifacts.map((item) => `- \`${item}\``).join("\n")}\n`;
   await fs.writeFile(path.join(outputDir, "report.md"), report, "utf8");
   console.log(JSON.stringify(summary, null, 2));
   if (!summary.passed) process.exitCode = 1;

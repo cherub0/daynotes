@@ -24,6 +24,7 @@ describe("LazyModalBoundary", () => {
       </LazyModalBoundary>,
     );
 
+    expect(screen.getByRole("dialog", { name: "正在加载" })).not.toBeNull();
     expect(screen.getByRole("status").textContent).toBe("正在加载…");
   });
 
@@ -53,8 +54,10 @@ describe("LazyModalBoundary", () => {
       </LazyModalBoundary>,
     );
 
-    expect(await screen.findByText("功能加载失败")).not.toBeNull();
+    const dialog = await screen.findByRole("dialog", { name: "功能加载失败" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(screen.getByRole("button", { name: "重试" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "关闭" })).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(onClose).toHaveBeenCalledOnce();
   });

@@ -1,5 +1,7 @@
 import { Component, createContext, lazy, Suspense, useContext } from "react";
 import type { ComponentType, ErrorInfo, LazyExoticComponent, ReactNode } from "react";
+import { Button } from "./ui/Button";
+import { ModalShell } from "./ui/ModalShell";
 
 interface LazyModalBoundaryProps {
   children: ReactNode;
@@ -44,16 +46,20 @@ class LazyModalErrorBoundary extends Component<LazyModalBoundaryProps, LazyModal
   render() {
     if (this.state.hasError) {
       return (
-        <div className="modal-overlay">
-          <div className="modal-backdrop" onClick={this.props.onClose} />
-          <div className="modal-content" role="alert">
-            <h2>功能加载失败</h2>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={this.props.onClose}>关闭</button>
-              <button className="btn btn-primary" onClick={this.retry}>重试</button>
-            </div>
-          </div>
-        </div>
+        <ModalShell
+          title="功能加载失败"
+          onClose={this.props.onClose}
+          closeLabel="关闭加载提示"
+          size="compact"
+          footer={(
+            <>
+              <Button variant="secondary" onClick={this.props.onClose}>关闭</Button>
+              <Button variant="primary" onClick={this.retry}>重试</Button>
+            </>
+          )}
+        >
+          <p className="lazy-modal-message" role="alert">暂时无法打开此功能，请重试。</p>
+        </ModalShell>
       );
     }
 
@@ -94,7 +100,11 @@ export function createRetryableLazy<Props extends object>(
 export function LazyModalBoundary(props: LazyModalBoundaryProps) {
   return (
     <LazyModalErrorBoundary {...props}>
-      <Suspense fallback={<div role="status">正在加载…</div>}>
+      <Suspense fallback={(
+        <ModalShell title="正在加载" onClose={props.onClose} closeLabel="关闭加载提示" size="compact">
+          <div className="lazy-modal-status" role="status">正在加载…</div>
+        </ModalShell>
+      )}>
         {props.children}
       </Suspense>
     </LazyModalErrorBoundary>

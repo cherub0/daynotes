@@ -7,6 +7,9 @@ import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/ex
 import { exportMarkdownZip, exportPdfPages, readBinaryFile, writeBinaryFile, type ExportImagePayload } from "../lib/tauri";
 import { renderPdfPages } from "../lib/pdfPages";
 import { ExportPreview } from "./ExportPreview";
+import { Button } from "./ui/Button";
+import { ModalShell } from "./ui/ModalShell";
+import { StatusBadge } from "./ui/StatusBadge";
 
 async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
   if (image.kind === "local") {
@@ -201,50 +204,52 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <>
       <div style={{ position: "fixed", left: -100000, top: 0, width: 800, pointerEvents: "none" }}>
         <ExportPreview document={previewDocument} previewRef={previewRef} />
       </div>
-      <div className="modal-backdrop" />
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
-        <h2>分享 — {formatDateDisplay(currentDate)}</h2>
+      <ModalShell
+        title={`分享 — ${formatDateDisplay(currentDate)}`}
+        onClose={onClose}
+        closeLabel="关闭分享"
+      >
+        <div className="share-options">
+          <Button variant="secondary" className="share-option" onClick={exportMarkdown} disabled={exporting}>
+            <div className="share-option-icon">📄</div>
+            <div className="share-option-text">
+              <strong>导出为 Markdown</strong>
+              <span>保存为 .md 文件，可导入 Notion / Obsidian / 语雀</span>
+            </div>
+          </Button>
 
-        <button className="share-option" onClick={exportMarkdown} disabled={exporting}>
-          <div className="share-option-icon">📄</div>
-          <div className="share-option-text">
-            <strong>导出为 Markdown</strong>
-            <span>保存为 .md 文件，可导入 Notion / Obsidian / 语雀</span>
-          </div>
-        </button>
+          <Button variant="secondary" className="share-option" onClick={copyAsHtml} disabled={exporting}>
+            <div className="share-option-icon">📋</div>
+            <div className="share-option-text">
+              <strong>复制为富文本</strong>
+              <span>直接粘贴到邮件 / 飞书 / 钉钉</span>
+            </div>
+          </Button>
 
-        <button className="share-option" onClick={copyAsHtml} disabled={exporting}>
-          <div className="share-option-icon">📋</div>
-          <div className="share-option-text">
-            <strong>复制为富文本</strong>
-            <span>直接粘贴到邮件 / 飞书 / 钉钉</span>
-          </div>
-        </button>
+          <Button variant="secondary" className="share-option" onClick={exportPDF} disabled={exporting}>
+            <div className="share-option-icon">🖨</div>
+            <div className="share-option-text">
+              <strong>导出为 PDF</strong>
+              <span>保存为 .pdf 文件</span>
+            </div>
+          </Button>
 
-        <button className="share-option" onClick={exportPDF} disabled={exporting}>
-          <div className="share-option-icon">🖨</div>
-          <div className="share-option-text">
-            <strong>导出为 PDF</strong>
-            <span>保存为 .pdf 文件</span>
-          </div>
-        </button>
+          <Button variant="secondary" className="share-option" onClick={exportImage} disabled={exporting}>
+            <div className="share-option-icon">🖼</div>
+            <div className="share-option-text">
+              <strong>导出为图片</strong>
+              <span>保存为 .png 文件</span>
+            </div>
+          </Button>
+        </div>
 
-        <button className="share-option" onClick={exportImage} disabled={exporting}>
-          <div className="share-option-icon">🖼</div>
-          <div className="share-option-text">
-            <strong>导出为图片</strong>
-            <span>保存为 .png 文件</span>
-          </div>
-        </button>
-
-        {exporting && <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 12 }}>导出中…</div>}
-      </div>
-    </div>
+        {exporting && <div className="share-export-status"><StatusBadge status="saving">导出中…</StatusBadge></div>}
+      </ModalShell>
+    </>
   );
 }
 

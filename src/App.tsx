@@ -3,6 +3,8 @@ import { DateHeader } from "./components/DateHeader";
 import { Editor } from "./components/Editor";
 import { createRetryableLazy, LazyModalBoundary } from "./components/LazyModalBoundary";
 import { TodoPanel } from "./components/TodoPanel";
+import { Toast } from "./components/Toast";
+import type { ToastTone } from "./components/Toast";
 import { useNoteSession } from "./hooks/useNoteSession";
 import * as api from "./lib/tauri";
 import { getNextDate, getPrevDate, getToday } from "./lib/types";
@@ -13,24 +15,50 @@ const LazyShareModal = createRetryableLazy(() => import("./components/ShareModal
 const LazySettingsModal = createRetryableLazy(() => import("./components/SettingsModal"));
 
 export default function App() {
-  const showToastRef = useRef<(message: string) => void>(() => undefined);
+  const showToastRef = useRef<(message: string, tone?: ToastTone) => void>(() => undefined);
   const session = useNoteSession({
     initialDate: getToday(),
-    onError: (message) => showToastRef.current(message),
+    onError: (message) => showToastRef.current(message, "error"),
   });
-  const { currentDate, content, todos, noteDates, changeDate, saveNow, setContent, setTodos } = session;
+  const {
+    currentDate,
+    content,
+    todos,
+    noteDates,
+    changeDate,
+    saveNow,
+    setContent,
+    setTodos,
+    saveStatus,
+    loadStatus,
+    retryLoad,
+  } = session;
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [showShare, setShowShare] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [shareRetryKey, setShareRetryKey] = useState(0);
   const [settingsRetryKey, setSettingsRetryKey] = useState(0);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = useCallback((message: string) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 2_000);
+  const showToast = useCallback((message: string, tone?: ToastTone) => {
+    const inferredTone = message.includes("失败") || message.includes("错误")
+      ? "error"
+      : message.includes("未能") || message.includes("未打包")
+        ? "warning"
+        : "success";
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
+    setToast({ message, tone: tone ?? inferredTone });
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast(null);
+    }, 2_000);
   }, []);
   showToastRef.current = showToast;
+
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
+  }, []);
 
   const applyTheme = useCallback((theme: string) => {
     if (theme === "dark") {
@@ -107,6 +135,7 @@ export default function App() {
         currentDate={currentDate}
         noteDates={noteDates}
         emailSettings={settings?.email}
+        loadStatus={loadStatus}
         onPrev={goToPrevDay}
         onNext={goToNextDay}
         onToday={goToToday}
@@ -120,13 +149,21 @@ export default function App() {
           setShowSettings(true);
         }}
         onSendEmail={handleSendEmail}
+        onRetryLoad={() => void retryLoad()}
       />
 
-      <div className="main-content">
-        <div className="editor-pane">
-          <Editor content={content} onChange={setContent} />
-        </div>
-        <TodoPanel todos={todos} onChange={setTodos} />
+      <div className="daily-scroll">
+        <main className="daily-flow">
+          <section className="editor-paper" aria-label="今日笔记">
+            <Editor
+              content={content}
+              onChange={setContent}
+              saveStatus={saveStatus}
+              onRetrySave={() => { void saveNow(); }}
+            />
+          </section>
+          <TodoPanel todos={todos} onChange={setTodos} />
+        </main>
       </div>
 
       {showShare && (
@@ -159,7 +196,7 @@ export default function App() {
         </LazyModalBoundary>
       )}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <Toast message={toast.message} tone={toast.tone} />}
     </div>
   );
 }

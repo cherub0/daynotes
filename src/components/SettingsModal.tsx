@@ -2,6 +2,10 @@ import { useState } from "react";
 import type { AppSettings, EmailSettings } from "../lib/types";
 import { testEmailSettings } from "../lib/tauri";
 import { validateEmailSettings } from "../lib/emailValidation";
+import { Button } from "./ui/Button";
+import { ModalShell } from "./ui/ModalShell";
+import { SegmentedControl } from "./ui/SegmentedControl";
+import { StatusBadge } from "./ui/StatusBadge";
 
 interface SettingsModalProps {
   settings: AppSettings | null;
@@ -87,11 +91,18 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-backdrop" />
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>×</button>
-        <h2>⚙ 设置</h2>
+    <ModalShell
+      title="设置"
+      onClose={onClose}
+      closeLabel="关闭设置"
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" onClick={handleSave}>保存设置</Button>
+        </>
+      )}
+    >
+      <div className="settings-modal">
 
         {/* ── Email Settings ── */}
         <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, marginTop: 4, color: "var(--accent)" }}>
@@ -99,8 +110,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </h3>
 
         <div className="form-group">
-          <label>邮箱服务</label>
+          <label htmlFor="settings-email-preset">邮箱服务</label>
           <select
+            id="settings-email-preset"
             value={SMTP_PRESETS[selectedPreset]?.label || "自定义"}
             onChange={(e) => handlePresetChange(e.target.value)}
           >
@@ -112,8 +124,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
         <div className="form-row">
           <div className="form-group">
-            <label>SMTP 服务器</label>
+            <label htmlFor="settings-smtp-host">SMTP 服务器</label>
             <input
+              id="settings-smtp-host"
               type="text"
               value={local.email.smtp_host}
               onChange={(e) => updateEmail("smtp_host", e.target.value)}
@@ -121,8 +134,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
             />
           </div>
           <div className="form-group" style={{ maxWidth: 100 }}>
-            <label>端口</label>
+            <label htmlFor="settings-smtp-port">端口</label>
             <input
+              id="settings-smtp-port"
               type="number"
               value={local.email.smtp_port}
               onChange={(e) => updateEmail("smtp_port", parseInt(e.target.value) || 465)}
@@ -131,8 +145,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>发件邮箱</label>
+          <label htmlFor="settings-sender-email">发件邮箱</label>
           <input
+            id="settings-sender-email"
             type="email"
             value={local.email.username}
             onChange={(e) => updateEmail("username", e.target.value)}
@@ -141,8 +156,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>授权码（非邮箱密码，QQ邮箱需在设置中生成）</label>
+          <label htmlFor="settings-email-password">授权码（非邮箱密码，QQ邮箱需在设置中生成）</label>
           <input
+            id="settings-email-password"
             type="password"
             value={local.email.password}
             onChange={(e) => updateEmail("password", e.target.value)}
@@ -151,8 +167,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div className="form-group">
-          <label>收件邮箱</label>
+          <label htmlFor="settings-recipient-email">收件邮箱</label>
           <input
+            id="settings-recipient-email"
             type="email"
             value={local.email.recipient}
             onChange={(e) => updateEmail("recipient", e.target.value)}
@@ -162,8 +179,9 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
 
         <div className="form-row">
           <div className="form-group">
-            <label>每日发送时间</label>
+            <label htmlFor="settings-send-time">每日发送时间</label>
             <input
+              id="settings-send-time"
               type="time"
               value={local.email.send_time}
               onChange={(e) => updateEmail("send_time", e.target.value)}
@@ -192,24 +210,21 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <button
-            className="btn btn-secondary"
+          <Button
+            variant="secondary"
             onClick={handleTestEmail}
             disabled={testEmailStatus === "sending"}
           >
             {testEmailStatus === "sending" ? "发送中…" : "发送测试邮件"}
-          </button>
-          {testEmailMessage && (
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 12,
-                color: testEmailStatus === "success" ? "var(--accent)" : "#d64545",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {testEmailMessage}
-            </div>
+          </Button>
+          {testEmailStatus === "sending" && (
+            <div className="settings-test-status"><StatusBadge status="saving">正在发送测试邮件…</StatusBadge></div>
+          )}
+          {testEmailMessage && testEmailStatus === "success" && (
+            <div className="settings-test-status"><StatusBadge status="saved">{testEmailMessage}</StatusBadge></div>
+          )}
+          {testEmailMessage && testEmailStatus === "error" && (
+            <div className="settings-test-status"><StatusBadge status="error">{testEmailMessage}</StatusBadge></div>
           )}
         </div>
 
@@ -219,20 +234,22 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
         </h3>
 
         <div className="form-group">
-          <label>主题</label>
-          <select
+          <SegmentedControl
+            label="主题"
             value={local.theme}
-            onChange={(e) => setLocal({ ...local, theme: e.target.value as "light" | "dark" | "system" })}
-          >
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
+            options={[
+              { value: "system", label: "跟随系统" },
+              { value: "light", label: "浅色" },
+              { value: "dark", label: "深色" },
+            ]}
+            onChange={(theme) => setLocal({ ...local, theme })}
+          />
         </div>
 
         <div className="form-group">
-          <label>字号: {local.font_size}px</label>
+          <label htmlFor="settings-font-size">字号: {local.font_size}px</label>
           <input
+            id="settings-font-size"
             type="range"
             min={12}
             max={20}
@@ -242,13 +259,8 @@ export function SettingsModal({ settings, onSave, onClose }: SettingsModalProps)
           />
         </div>
 
-        {/* ── Actions ── */}
-        <div className="modal-actions">
-          <button className="btn btn-secondary" onClick={onClose}>取消</button>
-          <button className="btn btn-primary" onClick={handleSave}>保存设置</button>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
