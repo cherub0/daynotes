@@ -119,7 +119,7 @@ src-tauri/target/release/bundle/nsis/DayNotes_<版本>_x64-setup.exe
 src-tauri/target/release/bundle/msi/DayNotes_<版本>_x64_zh-CN.msi
 ```
 
-当前应用版本为 `0.1.0`。正式对外分发前，建议为安装包配置 Windows 代码签名证书。
+当前应用版本为 `0.2.0`。正式对外分发前，建议为安装包配置 Windows 代码签名证书。
 
 ## 项目结构
 

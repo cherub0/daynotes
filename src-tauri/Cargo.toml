@@ -1,6 +1,6 @@
 [package]
 name = "daynotes"
-version = "0.1.0"
+version = "0.2.0"
 description = "DayNotes - A daily note-taking desktop app"
 authors = ["cherub0"]
 license = "MIT"
