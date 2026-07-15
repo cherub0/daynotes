@@ -28,6 +28,7 @@ pub struct TodoItem {
     pub id: String,
     pub text: String,
     pub done: bool,
+    pub date: Option<String>,  // "YYYY-MM-DD"
     pub time: Option<String>,  // "HH:MM"
 }
 
@@ -165,8 +166,17 @@ fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
         .iter()
         .map(|t| {
             let mark = if t.done { "☑" } else { "☐" };
-            let time = t.time.as_ref().map(|tm| format!(" @ {}", tm)).unwrap_or_default();
-            format!("{} {}{}", mark, t.text, time)
+            let schedule = [t.date.as_deref(), t.time.as_deref()]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let suffix = if schedule.is_empty() {
+                String::new()
+            } else {
+                format!("（截止：{}）", schedule)
+            };
+            format!("{} {}{}", mark, t.text, suffix)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -717,5 +727,21 @@ mod tests {
 
         assert!(query_notes_in_range(&conn, "2026-02-30", "2026-03-01").is_err());
         assert!(query_notes_in_range(&conn, "2026-07-15", "2026-07-14").is_err());
+    }
+
+    #[test]
+    fn todo_json_accepts_old_and_scheduled_shapes() {
+        let old: TodoItem = serde_json::from_str(
+            r#"{"id":"1","text":"旧待办","done":false,"time":null}"#,
+        )
+        .unwrap();
+        let scheduled: TodoItem = serde_json::from_str(
+            r#"{"id":"2","text":"新待办","done":false,"date":"2026-07-15","time":"14:30"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(old.date, None);
+        assert_eq!(scheduled.date.as_deref(), Some("2026-07-15"));
+        assert_eq!(scheduled.time.as_deref(), Some("14:30"));
     }
 }

@@ -49,6 +49,18 @@ export function formatTodoSchedule(todo: TodoItem): string {
   return schedule ? `（截止：${schedule}）` : "";
 }
 
+export function isTodoOverdue(todo: TodoItem, now = new Date()): boolean {
+  if (todo.done || !todo.date) return false;
+  const deadline = parseDate(todo.date);
+  const timeMatch = todo.time?.match(/^(\d{2}):(\d{2})$/);
+  if (timeMatch) {
+    deadline.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 59, 999);
+  } else {
+    deadline.setHours(23, 59, 59, 999);
+  }
+  return now.getTime() > deadline.getTime();
+}
+
 export function formatDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");

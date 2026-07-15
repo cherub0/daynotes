@@ -539,7 +539,7 @@
 }
 
 .todo-time {
-  width: 58px;
+  width: 94px;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -548,6 +548,36 @@
   font-size: 11px;
   text-align: center;
 }
+
+.todo-schedule {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.todo-date.ui-button {
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--surface-paper);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.todo-date-popover {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 30;
+}
+
+.todo-date-popover .calendar-popup { width: 300px; }
+.todo-item--overdue { box-shadow: inset 3px 0 0 var(--warning); }
+.todo-item--overdue .todo-date { color: var(--warning); border-color: var(--warning); }
+.todo-overdue { color: var(--warning); font-size: 11px; white-space: nowrap; }
+.todo-schedule-summary { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
 
 .todo-remove.ui-icon-button {
   width: 28px;
@@ -1024,4 +1054,8 @@
   .editor-toolbar .ui-menu-popover__menu .toolbar-compact-action { display: block; }
   .editor-toolbar .save-status { width: 100%; margin-left: 0; padding-left: var(--space-1); }
   .toast { width: calc(100% - 24px); text-align: center; }
+  .todo-item { flex-wrap: wrap; }
+  .todo-text { min-width: calc(100% - 72px); }
+  .todo-schedule { margin-left: 36px; }
+  .todo-date-popover { right: auto; left: -36px; }
 }

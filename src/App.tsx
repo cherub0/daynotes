@@ -162,7 +162,7 @@ export default function App() {
               onRetrySave={() => { void saveNow(); }}
             />
           </section>
-          <TodoPanel todos={todos} onChange={setTodos} />
+          <TodoPanel currentDate={currentDate} todos={todos} onChange={setTodos} />
         </main>
       </div>
 

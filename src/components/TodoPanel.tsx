@@ -1,16 +1,20 @@
 import { useState } from "react";
+import { formatTodoSchedule, isTodoOverdue } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { Button, IconButton } from "./ui/Button";
+import { CalendarPicker } from "./CalendarPicker";
 import { StatusBadge } from "./ui/StatusBadge";
 import { Surface } from "./ui/Surface";
 
 interface TodoPanelProps {
+  currentDate: string;
   todos: TodoItem[];
   onChange: (todos: TodoItem[]) => void;
 }
 
-export function TodoPanel({ todos, onChange }: TodoPanelProps) {
+export function TodoPanel({ currentDate, todos, onChange }: TodoPanelProps) {
   const [newText, setNewText] = useState("");
+  const [openCalendarTodoId, setOpenCalendarTodoId] = useState<string | null>(null);
 
   function generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -23,38 +27,36 @@ export function TodoPanel({ todos, onChange }: TodoPanelProps) {
       id: generateId(),
       text,
       done: false,
+      date: currentDate,
+      time: undefined,
     };
     onChange([...todos, newTodo]);
     setNewText("");
   }
 
+  function updateTodo(id: string, changes: Partial<TodoItem>) {
+    onChange(todos.map((todo) => (todo.id === id ? { ...todo, ...changes } : todo)));
+  }
+
   function toggleTodo(id: string) {
-    onChange(todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
-  }
-
-  function updateText(id: string, text: string) {
-    onChange(todos.map((t) => (t.id === id ? { ...t, text } : t)));
-  }
-
-  function updateTime(id: string, time: string) {
-    onChange(todos.map((t) => (t.id === id ? { ...t, time: time || undefined } : t)));
+    onChange(todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo)));
   }
 
   function removeTodo(id: string) {
-    onChange(todos.filter((t) => t.id !== id));
+    onChange(todos.filter((todo) => todo.id !== id));
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
+  function handleKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Enter") {
+      event.preventDefault();
       addTodo();
     }
   }
 
-  const doneCount = todos.filter((t) => t.done).length;
+  const doneCount = todos.filter((todo) => todo.done).length;
   const total = todos.length;
-  const pending = todos.filter((t) => !t.done);
-  const completed = todos.filter((t) => t.done);
+  const pending = todos.filter((todo) => !todo.done);
+  const completed = todos.filter((todo) => todo.done);
   const progress = total === 0 ? 0 : (doneCount / total) * 100;
 
   return (
@@ -89,51 +91,68 @@ export function TodoPanel({ todos, onChange }: TodoPanelProps) {
           aria-label="新待办"
           placeholder="添加待办…"
           value={newText}
-          onChange={(e) => setNewText(e.target.value)}
+          onChange={(event) => setNewText(event.target.value)}
           onKeyDown={handleKeyDown}
         />
-        <Button variant="primary" onClick={addTodo}>
-          添加
-        </Button>
+        <Button variant="primary" onClick={addTodo}>添加</Button>
       </div>
 
       <div className="todo-list">
         {pending.length > 0 && (
           <section className="todo-group" aria-labelledby="todo-pending-heading">
             <h3 id="todo-pending-heading" className="todo-group-title">进行中</h3>
-            {pending.map((todo) => (
-              <div key={todo.id} className="todo-item">
-                <IconButton
-                  label={`完成待办：${todo.text}`}
-                  className="todo-check"
-                  onClick={() => toggleTodo(todo.id)}
-                >
-                  <span aria-hidden="true">○</span>
-                </IconButton>
-                <input
-                  className="todo-text"
-                  aria-label={`待办内容：${todo.text}`}
-                  value={todo.text}
-                  onChange={(e) => updateText(todo.id, e.target.value)}
-                />
-                <input
-                  className="todo-time"
-                  type="text"
-                  aria-label={`提醒时间：${todo.text}`}
-                  placeholder="时间"
-                  value={todo.time || ""}
-                  onChange={(e) => updateTime(todo.id, e.target.value)}
-                  title="设置提醒时间（如 14:00）"
-                />
-                <IconButton
-                  label={`删除待办：${todo.text}`}
-                  className="todo-remove"
-                  onClick={() => removeTodo(todo.id)}
-                >
-                  <span aria-hidden="true">×</span>
-                </IconButton>
-              </div>
-            ))}
+            {pending.map((todo) => {
+              const overdue = isTodoOverdue(todo);
+              return (
+                <div key={todo.id} className={`todo-item${overdue ? " todo-item--overdue" : ""}`}>
+                  <IconButton label={`完成待办：${todo.text}`} className="todo-check" onClick={() => toggleTodo(todo.id)}>
+                    <span aria-hidden="true">○</span>
+                  </IconButton>
+                  <input
+                    className="todo-text"
+                    aria-label={`待办内容：${todo.text}`}
+                    value={todo.text}
+                    onChange={(event) => updateTodo(todo.id, { text: event.target.value })}
+                  />
+                  <div className="todo-schedule">
+                    <Button
+                      variant="subtle"
+                      className="todo-date"
+                      aria-label={`截止日期：${todo.text}`}
+                      onClick={() => setOpenCalendarTodoId((openId) => openId === todo.id ? null : todo.id)}
+                    >
+                      {todo.date || "选择日期"}
+                    </Button>
+                    <input
+                      className="todo-time"
+                      type="time"
+                      aria-label={`截止时间：${todo.text}`}
+                      value={todo.time || ""}
+                      onChange={(event) => updateTodo(todo.id, { time: event.target.value || undefined })}
+                      title="设置截止时间"
+                    />
+                    {openCalendarTodoId === todo.id && (
+                      <div className="todo-date-popover">
+                        <CalendarPicker
+                          currentDate={todo.date || currentDate}
+                          noteDates={new Set()}
+                          label={`选择截止日期：${todo.text}`}
+                          onSelect={(date) => {
+                            updateTodo(todo.id, { date });
+                            setOpenCalendarTodoId(null);
+                          }}
+                          onClose={() => setOpenCalendarTodoId(null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {overdue && <span className="todo-overdue">已逾期</span>}
+                  <IconButton label={`删除待办：${todo.text}`} className="todo-remove" onClick={() => removeTodo(todo.id)}>
+                    <span aria-hidden="true">×</span>
+                  </IconButton>
+                </div>
+              );
+            })}
           </section>
         )}
 
@@ -142,20 +161,12 @@ export function TodoPanel({ todos, onChange }: TodoPanelProps) {
             <h3 id="todo-completed-heading" className="todo-group-title">已完成</h3>
             {completed.map((todo) => (
               <div key={todo.id} className="todo-item completed">
-                <IconButton
-                  label={`恢复待办：${todo.text}`}
-                  className="todo-check done"
-                  active
-                  onClick={() => toggleTodo(todo.id)}
-                >
+                <IconButton label={`恢复待办：${todo.text}`} className="todo-check done" active onClick={() => toggleTodo(todo.id)}>
                   <span aria-hidden="true">✓</span>
                 </IconButton>
                 <span className="todo-text done">{todo.text}</span>
-                <IconButton
-                  label={`删除待办：${todo.text}`}
-                  className="todo-remove"
-                  onClick={() => removeTodo(todo.id)}
-                >
+                {(todo.date || todo.time) && <span className="todo-schedule-summary">{formatTodoSchedule(todo)}</span>}
+                <IconButton label={`删除待办：${todo.text}`} className="todo-remove" onClick={() => removeTodo(todo.id)}>
                   <span aria-hidden="true">×</span>
                 </IconButton>
               </div>
