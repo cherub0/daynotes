@@ -53,6 +53,28 @@ describe("useNoteSession loading", () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it("keeps the mounted date and note when the initial date prop changes after midnight", async () => {
+    vi.mocked(api.getNote).mockImplementation(async (date) => date === "2026-07-14"
+      ? note(date, "<p>yesterday survives</p>")
+      : null);
+
+    const { result, rerender } = renderHook(
+      ({ initialDate }) => useNoteSession({ initialDate, onError: vi.fn(), saveDelay: 20 }),
+      { initialProps: { initialDate: "2026-07-14" } },
+    );
+
+    await waitFor(() => expect(result.current.content).toBe("<p>yesterday survives</p>"));
+    vi.mocked(api.getNote).mockClear();
+
+    rerender({ initialDate: "2026-07-15" });
+    await act(async () => Promise.resolve());
+
+    expect(result.current.currentDate).toBe("2026-07-14");
+    expect(result.current.content).toBe("<p>yesterday survives</p>");
+    expect(api.getNote).not.toHaveBeenCalled();
+    expect(api.saveNote).not.toHaveBeenCalled();
+  });
+
   it("reports dirty, saving and saved for the current snapshot", async () => {
     const pending = deferred<void>();
     vi.mocked(api.getNote).mockResolvedValue(note("2026-07-13", "<p>start</p>"));

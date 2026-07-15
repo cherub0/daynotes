@@ -29,7 +29,8 @@ export interface NoteSession {
 }
 
 export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseNoteSessionOptions): NoteSession {
-  const [currentDate, setCurrentDate] = useState(initialDate);
+  const initialDateRef = useRef(initialDate);
+  const [currentDate, setCurrentDate] = useState(initialDateRef.current);
   const [content, setContentState] = useState("");
   const [todos, setTodosState] = useState<TodoItem[]>([]);
   const [noteDates, setNoteDates] = useState<Set<string>>(new Set());
@@ -122,8 +123,8 @@ export function useNoteSession({ initialDate, onError, saveDelay = 2_000 }: UseN
   }, []);
 
   useEffect(() => {
-    void loadDate(initialDate);
-  }, [initialDate, loadDate]);
+    void loadDate(initialDateRef.current);
+  }, [loadDate]);
 
   const saveSnapshot = useCallback(
     async (date: string, html: string, serializedTodos: string): Promise<boolean> => {
