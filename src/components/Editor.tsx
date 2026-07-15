@@ -137,7 +137,9 @@ export function Editor({ content, onChange, saveStatus, onRetrySave }: EditorPro
   });
 
   useEffect(() => {
-    if (editor && editor.getHTML() !== content) editor.commands.setContent(content);
+    if (editor && editor.getHTML() !== content) {
+      editor.commands.setContent(content, { emitUpdate: false });
+    }
   }, [content, editor]);
 
   if (!editor) return <div className="editor-loading">加载编辑器中…</div>;
