@@ -30,7 +30,9 @@ vi.mock("./hooks/useNoteSession", () => ({
 
 vi.mock("./components/DateHeader", () => ({ DateHeader: () => null }));
 vi.mock("./components/Editor", () => ({ Editor: () => null }));
-vi.mock("./components/TodoPanel", () => ({ TodoPanel: () => null }));
+vi.mock("./components/TodoPanel", () => ({
+  TodoPanel: ({ currentDate }: { currentDate: string }) => <div data-testid="todo-current-date">{currentDate}</div>,
+}));
 vi.mock("./lib/tauri", () => ({
   getSettings: vi.fn(() => new Promise(() => undefined)),
   saveSettings: vi.fn(),
@@ -44,6 +46,11 @@ afterEach(() => {
 });
 
 describe("App toast lifecycle", () => {
+  it("passes the selected note date to the todo scheduler", () => {
+    render(<App />);
+    expect(screen.getByTestId("todo-current-date").textContent).toBe("2026-07-14");
+  });
+
   it("does not let an older dismissal timer clear a newer toast", () => {
     vi.useFakeTimers();
     render(<App />);

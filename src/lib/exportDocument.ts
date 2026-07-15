@@ -1,4 +1,6 @@
+import { formatTodoSchedule } from "./types";
 import type { TodoItem } from "./types";
+import type { ShareEntry } from "./shareRange";
 
 export interface ExportInline {
   text: string;
@@ -47,6 +49,12 @@ export interface ExportDocument {
 export interface MarkdownExport {
   markdown: string;
   images: ExportImage[];
+}
+
+export interface ExportCollection {
+  startDate: string;
+  endDate: string;
+  documents: ExportDocument[];
 }
 
 const DATA_URL = /^data:([^;,]+)(?:;[^,]*)?,/i;
@@ -199,6 +207,20 @@ export function parseExportDocument(date: string, html: string, todos: TodoItem[
   return { date, title: date, blocks, images };
 }
 
+export function createExportCollection(
+  startDate: string,
+  endDate: string,
+  entries: ShareEntry[],
+): ExportCollection {
+  return {
+    startDate,
+    endDate,
+    documents: [...entries]
+      .sort((left, right) => left.date.localeCompare(right.date))
+      .map((entry) => parseExportDocument(entry.date, entry.content, entry.todos)),
+  };
+}
+
 function escapeMarkdown(text: string): string {
   return text.replace(/([\\`*_[\]<>])/g, "\\$1");
 }
@@ -277,7 +299,7 @@ export function renderMarkdown(document: ExportDocument): MarkdownExport {
         segments.push([
           "## 待办事项",
           ...block.items.map((item) =>
-            `- [${item.done ? "x" : " "}] ${escapeMarkdown(item.text)}${item.time ? ` @ ${item.time}` : ""}`,
+            `- [${item.done ? "x" : " "}] ${escapeMarkdown(item.text)}${formatTodoSchedule(item)}`,
           ),
         ].join("\n"));
         break;
@@ -285,6 +307,31 @@ export function renderMarkdown(document: ExportDocument): MarkdownExport {
   }
 
   return { markdown: `${segments.join("\n\n")}\n`, images: document.images };
+}
+
+export function renderCollectionMarkdown(collection: ExportCollection): MarkdownExport {
+  const sections: string[] = [];
+  const images: ExportImage[] = [];
+
+  for (const document of collection.documents) {
+    const rendered = renderMarkdown(document);
+    let markdown = rendered.markdown;
+    for (const image of rendered.images) {
+      const renamed = { ...image, filename: `${document.date}-${image.filename}` };
+      if (image.kind !== "remote") {
+        markdown = markdown
+          .split(`images/${image.filename}`)
+          .join(`images/${renamed.filename}`);
+      }
+      images.push(renamed);
+    }
+    sections.push(markdown.trimEnd());
+  }
+
+  return {
+    markdown: sections.length ? `${sections.join("\n\n---\n\n")}\n` : "",
+    images,
+  };
 }
 
 function renderHtmlInline(content: ExportInline[]): string {
@@ -353,7 +400,7 @@ export function renderPrintHtml(document: ExportDocument): string {
       }
       case "todos":
         return `<section class="todos"><h2>待办清单</h2><ul>${block.items.map((item) =>
-          `<li class="${item.done ? "done" : ""}">${item.done ? "☑" : "☐"} ${item.text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}${item.time ? ` @ ${item.time}` : ""}</li>`
+          `<li class="${item.done ? "done" : ""}">${item.done ? "☑" : "☐"} ${item.text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}${formatTodoSchedule(item)}</li>`
         ).join("")}</ul></section>`;
     }
   }).join("\n");
@@ -423,4 +470,12 @@ ${bodyHtml}
 <div class="print-footer">由 DayNotes 生成</div>
 </body>
 </html>`;
+}
+
+export function renderCollectionHtml(collection: ExportCollection): string {
+  const sections = collection.documents.map((document) => {
+    const parsed = new DOMParser().parseFromString(renderPrintHtml(document), "text/html");
+    return `<section class="export-day" data-date="${document.date}">${parsed.body.innerHTML}</section>`;
+  });
+  return `<div class="daynotes-export-range">${sections.join("\n")}</div>`;
 }

@@ -27,6 +27,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
   const toolbarRef = useRef<HTMLDivElement>(null);
   const popoverLayerRef = useRef<HTMLDivElement>(null);
   const insertMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const taskListActive = editor.isActive("taskList");
 
   useEffect(() => {
     const hasOpenPopover = showLangPicker || showImagePicker || showLinkPicker || showLinkEditor || showTablePicker;
@@ -135,7 +136,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
           <IconButton className="toolbar-wide-action" label="标题3" active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</IconButton>
           <IconButton label="无序列表" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>≡</IconButton>
           <IconButton label="有序列表" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</IconButton>
-          <IconButton label="任务列表" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>☑</IconButton>
+          <IconButton label="任务列表" active={taskListActive} onClick={() => editor.chain().focus().toggleTaskList().run()}>☑</IconButton>
           <IconButton className="toolbar-wide-action" label="引用" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>❝</IconButton>
           <IconButton className="toolbar-wide-action" label="插入分隔线" onClick={() => editor.chain().focus().setHorizontalRule().run()}>―</IconButton>
         </div>
@@ -171,6 +172,7 @@ export function EditorToolbar({ editor, saveStatus, onRetrySave }: EditorToolbar
           <IconButton label="重做 (Ctrl+Y)" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()}>↪</IconButton>
         </div>
         <SaveStatusIndicator status={saveStatus} onRetry={onRetrySave} />
+        {taskListActive && <span className="editor-mode-status" role="status">任务列表编辑模式已开启</span>}
       </div>
 
       <div ref={popoverLayerRef} className="toolbar-popover-layer">

@@ -36,6 +36,10 @@ export async function getNote(date: string): Promise<Note | null> {
   return invoke("get_note", { date });
 }
 
+export async function getNotesInRange(startDate: string, endDate: string): Promise<Note[]> {
+  return invoke("get_notes_in_range", { startDate, endDate });
+}
+
 export async function getNotesDates(): Promise<string[]> {
   return invoke("get_notes_dates");
 }

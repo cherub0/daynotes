@@ -2,7 +2,7 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { parseExportDocument } from "../lib/exportDocument";
+import { createExportCollection, parseExportDocument } from "../lib/exportDocument";
 import { ExportPreview } from "./ExportPreview";
 
 describe("ExportPreview", () => {
@@ -21,5 +21,20 @@ describe("ExportPreview", () => {
     expect(container.querySelector("table td")?.textContent).toBe("A");
     expect(container.querySelector("img")?.getAttribute("src")).toContain("data:image/png");
     expect(container.textContent).not.toMatch(/\[图片 \d+\]/);
+  });
+
+  it("renders multiple dated sections in ascending order inside one export document", () => {
+    const collection = createExportCollection("2026-07-12", "2026-07-14", [
+      { date: "2026-07-14", content: "<p>第二天</p>", todos: [] },
+      { date: "2026-07-12", content: "<p>第一天</p>", todos: [] },
+    ]);
+
+    const { container } = render(<ExportPreview collection={collection} />);
+    const days = Array.from(container.querySelectorAll<HTMLElement>(".export-day"));
+
+    expect(days).toHaveLength(2);
+    expect(days.map((day) => day.dataset.date)).toEqual(["2026-07-12", "2026-07-14"]);
+    expect(container.querySelectorAll(".export-header")).toHaveLength(1);
+    expect(container.querySelectorAll(".export-footer")).toHaveLength(1);
   });
 });

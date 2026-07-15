@@ -4,6 +4,7 @@ export interface TodoItem {
   id: string;
   text: string;
   done: boolean;
+  date?: string; // "YYYY-MM-DD"
   time?: string; // "HH:MM"
 }
 
@@ -36,10 +37,28 @@ export interface AppSettings {
 
 export function parseTodos(todosJson: string): TodoItem[] {
   try {
-    return JSON.parse(todosJson);
+    const parsed: unknown = JSON.parse(todosJson);
+    return Array.isArray(parsed) ? parsed as TodoItem[] : [];
   } catch {
     return [];
   }
+}
+
+export function formatTodoSchedule(todo: TodoItem): string {
+  const schedule = [todo.date, todo.time].filter(Boolean).join(" ");
+  return schedule ? `（截止：${schedule}）` : "";
+}
+
+export function isTodoOverdue(todo: TodoItem, now = new Date()): boolean {
+  if (todo.done || !todo.date) return false;
+  const deadline = parseDate(todo.date);
+  const timeMatch = todo.time?.match(/^(\d{2}):(\d{2})$/);
+  if (timeMatch) {
+    deadline.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 59, 999);
+  } else {
+    deadline.setHours(23, 59, 59, 999);
+  }
+  return now.getTime() > deadline.getTime();
 }
 
 export function formatDate(date: Date): string {

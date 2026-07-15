@@ -130,6 +130,16 @@ describe("EditorToolbar table popover", () => {
     expect(screen.getByRole("menuitemcheckbox", { name: "插入链接" }).getAttribute("aria-checked")).toBe("true");
   });
 
+  it("announces when task-list editing mode is active", () => {
+    const { editor } = createEditor();
+    editor.isActive = vi.fn((name: string) => name === "taskList");
+    render(<EditorToolbar editor={editor} saveStatus="saved" onRetrySave={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "任务列表" }).getAttribute("aria-pressed")).toBe("true");
+    const status = screen.getByText("任务列表编辑模式已开启");
+    expect(status.getAttribute("role")).toBe("status");
+  });
+
   it.each([
     ["代码块", "button", "JavaScript"],
     ["插入链接", "button", "🌐 网页链接…"],
