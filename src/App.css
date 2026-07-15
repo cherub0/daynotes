@@ -781,6 +781,41 @@
   gap: var(--space-2);
 }
 
+.share-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--surface-inset);
+}
+
+.share-date-field {
+  position: relative;
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.share-date-field .ui-button { width: 100%; }
+.share-range-separator { padding-bottom: 9px; color: var(--text-muted); }
+
+.share-date-picker {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 20;
+}
+
+.share-date-picker--end { right: 0; left: auto; }
+.share-date-picker .calendar-popup { width: 300px; }
+.share-load-state { min-height: 32px; margin-bottom: var(--space-3); }
+.share-load-error { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); color: var(--danger); }
+
 .share-option:hover {
   background: var(--surface-inset);
   border-color: var(--accent);
@@ -899,6 +934,11 @@
   .form-row {
     flex-direction: column;
   }
+
+  .share-range { grid-template-columns: 1fr; align-items: stretch; }
+  .share-range-separator { display: none; }
+  .share-date-picker,
+  .share-date-picker--end { right: auto; left: 0; }
 
   .ui-segmented__options {
     display: grid;

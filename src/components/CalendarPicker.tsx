@@ -5,6 +5,7 @@ import { formatDate, getToday, parseDate } from "../lib/types";
 interface CalendarPickerProps {
   currentDate: string;
   noteDates: Set<string>;
+  label?: string;
   onSelect: (date: string) => void;
   onClose: () => void;
 }
@@ -35,7 +36,7 @@ function getDateLabel(dateStr: string, isSelected: boolean, isToday: boolean, ha
   return states.length > 0 ? `${dateStr}，${states.join("，")}` : dateStr;
 }
 
-export function CalendarPicker({ currentDate, noteDates, onSelect, onClose }: CalendarPickerProps) {
+export function CalendarPicker({ currentDate, noteDates, label = "选择日期", onSelect, onClose }: CalendarPickerProps) {
   const today = getToday();
   const [viewDate, setViewDate] = useState(() => getYearMonth(currentDate));
   const [focusedDate, setFocusedDate] = useState(currentDate);
@@ -116,7 +117,7 @@ export function CalendarPicker({ currentDate, noteDates, onSelect, onClose }: Ca
   });
 
   return (
-    <div className="calendar-popup" aria-label="选择日期">
+    <div className="calendar-popup" aria-label={label}>
       <div className="calendar-header">
         <button className="nav-btn" type="button" aria-label="上个月" onClick={() => moveFocusByMonth(-1)}>◀</button>
         <span id="calendar-month-label">{year}年 {month}月</span>

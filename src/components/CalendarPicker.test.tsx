@@ -93,4 +93,18 @@ describe("CalendarPicker", () => {
     expect(appCss).toMatch(/\.calendar-day\.selected\s*{[^}]*font-weight:\s*700[^}]*box-shadow:\s*inset 0 0 0 2px var\(--border-strong\)/);
     expect(appCss).toMatch(/\.calendar-day:focus-visible\s*{[^}]*outline:\s*3px solid var\(--focus-ring\)[^}]*outline-offset:\s*2px/);
   });
+
+  it("accepts a contextual accessible label when reused outside the main date header", () => {
+    render(
+      <CalendarPicker
+        currentDate="2026-07-13"
+        noteDates={new Set()}
+        label="选择分享开始日期"
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("选择分享开始日期")).toBeTruthy();
+  });
 });

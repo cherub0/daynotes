@@ -1,11 +1,24 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toBlob } from "html-to-image";
-import { formatDateDisplay } from "../lib/types";
-import type { TodoItem } from "../lib/types";
 import { save } from "@tauri-apps/plugin-dialog";
-import { parseExportDocument, renderMarkdown, type ExportImage } from "../lib/exportDocument";
-import { exportMarkdownZip, exportPdfPages, readBinaryFile, writeBinaryFile, type ExportImagePayload } from "../lib/tauri";
+import type { TodoItem } from "../lib/types";
+import {
+  createExportCollection,
+  renderCollectionHtml,
+  renderCollectionMarkdown,
+  type ExportImage,
+} from "../lib/exportDocument";
+import { getShareBaseName, mergeShareEntries, type ShareEntry } from "../lib/shareRange";
+import {
+  exportMarkdownZip,
+  exportPdfPages,
+  getNotesInRange,
+  readBinaryFile,
+  writeBinaryFile,
+  type ExportImagePayload,
+} from "../lib/tauri";
 import { renderPdfPages } from "../lib/pdfPages";
+import { CalendarPicker } from "./CalendarPicker";
 import { ExportPreview } from "./ExportPreview";
 import { Button } from "./ui/Button";
 import { ModalShell } from "./ui/ModalShell";
@@ -14,8 +27,7 @@ import { StatusBadge } from "./ui/StatusBadge";
 async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
   if (image.kind === "local") {
     try {
-      const bytes = await readBinaryFile(image.source);
-      return new Uint8Array(bytes);
+      return new Uint8Array(await readBinaryFile(image.source));
     } catch {
       return null;
     }
@@ -29,7 +41,7 @@ async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
       if (isBase64) {
         const binary = atob(data);
         const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
         return bytes;
       }
       return new TextEncoder().encode(decodeURIComponent(data));
@@ -50,15 +62,57 @@ interface ShareModalProps {
   onToast: (msg: string) => void;
 }
 
-
+type LoadState = "loading" | "ready" | "error";
+type DatePickerTarget = "start" | "end" | null;
 
 export function ShareModal({ currentDate, content, todos, onClose, onToast }: ShareModalProps) {
+  const [startDate, setStartDate] = useState(currentDate);
+  const [endDate, setEndDate] = useState(currentDate);
+  const [entries, setEntries] = useState<ShareEntry[]>(() =>
+    mergeShareEntries([], { date: currentDate, content, todos }),
+  );
+  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [loadError, setLoadError] = useState("");
+  const [pickerTarget, setPickerTarget] = useState<DatePickerTarget>(null);
   const [exporting, setExporting] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
-  const previewDocument = useMemo(
-    () => parseExportDocument(currentDate, content, todos),
-    [currentDate, content, todos],
+  const requestRef = useRef(0);
+
+  const currentEntry = useMemo<ShareEntry>(
+    () => ({ date: currentDate, content, todos }),
+    [content, currentDate, todos],
   );
+
+  const loadRange = useCallback(async () => {
+    const request = ++requestRef.current;
+    setLoadState("loading");
+    setLoadError("");
+    try {
+      const notes = await getNotesInRange(startDate, endDate);
+      if (request !== requestRef.current) return;
+      const localCurrent = currentDate >= startDate && currentDate <= endDate ? currentEntry : undefined;
+      setEntries(mergeShareEntries(notes, localCurrent));
+      setLoadState("ready");
+    } catch (error) {
+      if (request !== requestRef.current) return;
+      setLoadError(`加载分享内容失败：${String(error)}`);
+      setLoadState("error");
+    }
+  }, [currentDate, currentEntry, endDate, startDate]);
+
+  useEffect(() => {
+    void loadRange();
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [loadRange]);
+
+  const collection = useMemo(
+    () => createExportCollection(startDate, endDate, entries),
+    [endDate, entries, startDate],
+  );
+  const baseName = getShareBaseName(startDate, endDate);
+  const canExport = loadState === "ready" && collection.documents.length > 0 && !exporting;
 
   function stripHtml(html: string): string {
     const div = document.createElement("div");
@@ -66,17 +120,28 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     return div.textContent || "";
   }
 
+  function selectRangeDate(target: Exclude<DatePickerTarget, null>, date: string) {
+    setPickerTarget(null);
+    if (target === "start") {
+      setStartDate(date);
+      if (date > endDate) setEndDate(date);
+    } else {
+      setEndDate(date);
+      if (date < startDate) setStartDate(date);
+    }
+  }
+
   async function exportMarkdown() {
     setExporting(true);
     try {
       const path = await save({
         title: "导出 Markdown 压缩包",
-        defaultPath: `DayNotes-${currentDate}.zip`,
+        defaultPath: `${baseName}.zip`,
         filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
       });
       if (!path) return;
 
-      const exported = renderMarkdown(parseExportDocument(currentDate, content, todos));
+      const exported = renderCollectionMarkdown(collection);
       let markdown = exported.markdown;
       const payloads: ExportImagePayload[] = [];
       let remoteFailures = 0;
@@ -87,36 +152,33 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           if (image.kind === "remote") remoteFailures += 1;
           if (image.kind === "local") {
             localSkipped += 1;
-            const escaped = image.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            markdown = markdown.replace(
-              new RegExp(`!\\[([^\\]]*)\\]\\(${escaped}\\)`, "g"),
-              `[本地图片：${image.alt || image.filename}]`,
-            );
+            markdown = markdown
+              .split(`images/${image.filename}`)
+              .join(`[本地图片：${image.alt || image.filename}]`);
           }
           continue;
         }
         payloads.push({ path: `images/${image.filename}`, bytes: Array.from(bytes) });
         if (image.kind === "remote") {
-          const escaped = image.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           markdown = markdown.replace(
-            new RegExp(`!\\[([^\\]]*)\\]\\(${escaped}\\)`, "g"),
-            `![$1](images/${image.filename})`,
+            `![${image.alt}](${image.source})`,
+            `![${image.alt}](images/${image.filename})`,
           );
         }
       }
 
-      const result = await exportMarkdownZip(path, `${currentDate}.md`, markdown, payloads);
+      const result = await exportMarkdownZip(path, `${baseName}.md`, markdown, payloads);
       const warnings: string[] = [];
       if (remoteFailures) warnings.push(`${remoteFailures} 张网络图片未能下载`);
       if (localSkipped) warnings.push(`${localSkipped} 张本地图片未打包（仅限应用内可见）`);
       onToast(warnings.length
         ? `已导出到 ${result.path}，${warnings.join("，")}`
         : `已导出 Markdown 压缩包：${result.path}`);
+      onClose();
     } catch (error) {
       onToast(`导出失败：${String(error)}`);
     } finally {
       setExporting(false);
-      onClose();
     }
   }
 
@@ -125,50 +187,38 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     try {
       const path = await save({
         title: "导出 PDF",
-        defaultPath: `DayNotes-${currentDate}.pdf`,
+        defaultPath: `${baseName}.pdf`,
         filters: [{ name: "PDF 文档", extensions: ["pdf"] }],
       });
       if (!path) return;
-
       if (!previewRef.current) throw new Error("PDF 预览尚未就绪");
       const pages = await renderPdfPages(previewRef.current);
-      const result = await exportPdfPages(path, currentDate, pages.map((page) => Array.from(page)));
+      const pdfTitle = startDate === endDate ? startDate : `${startDate}_${endDate}`;
+      const result = await exportPdfPages(path, pdfTitle, pages.map((page) => Array.from(page)));
       onToast(`已导出 PDF：${result.path}`);
+      onClose();
     } catch (error) {
       onToast(`PDF 导出失败：${String(error)}`);
     } finally {
       setExporting(false);
-      onClose();
     }
   }
 
   async function copyAsHtml() {
     try {
-      // Build clean HTML for clipboard
-      let html = `<h1>${formatDateDisplay(currentDate)}</h1>`;
-      html += content;
-      html += `<h2>待办清单</h2><ul>`;
-      todos.forEach((t) => {
-        html += `<li>${t.done ? "☑" : "☐"} ${t.text}${t.time ? ` @ ${t.time}` : ""}</li>`;
-      });
-      html += `</ul>`;
-
-      // Create both HTML and plain text clipboard data
+      const html = renderCollectionHtml(collection);
       const plainText = stripHtml(html);
-      const blobHtml = new Blob([html], { type: "text/html" });
-      const blobText = new Blob([plainText], { type: "text/plain" });
-
       await navigator.clipboard.write([
         new ClipboardItem({
-          "text/html": blobHtml,
-          "text/plain": blobText,
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([plainText], { type: "text/plain" }),
         }),
       ]);
       onToast("已复制到剪贴板，可直接粘贴到邮件/文档");
     } catch {
-      // Fallback: just copy plain text
-      const plainText = stripHtml(content);
-      await navigator.clipboard.writeText(plainText);
+      await navigator.clipboard.writeText(collection.documents.map((item) =>
+        `${item.date}\n${stripHtml(renderCollectionHtml({ startDate: item.date, endDate: item.date, documents: [item] }))}`,
+      ).join("\n\n"));
       onToast("已复制纯文本到剪贴板");
     }
     onClose();
@@ -179,11 +229,10 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     try {
       const path = await save({
         title: "导出图片",
-        defaultPath: `DayNotes-${currentDate}.png`,
+        defaultPath: `${baseName}.png`,
         filters: [{ name: "PNG 图片", extensions: ["png"] }],
       });
-      if (!path) { setExporting(false); return; }
-
+      if (!path) return;
       if (!previewRef.current) throw new Error("预览元素未就绪");
       await document.fonts.ready;
       const blob = await toBlob(previewRef.current, {
@@ -192,61 +241,96 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         cacheBust: true,
       });
       if (!blob) throw new Error("无法生成图片数据");
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      await writeBinaryFile(path, Array.from(bytes));
+      await writeBinaryFile(path, Array.from(new Uint8Array(await blob.arrayBuffer())));
       onToast(`已导出图片：${path}`);
+      onClose();
     } catch (error) {
       onToast(`图片导出失败：${String(error)}`);
     } finally {
       setExporting(false);
-      onClose();
     }
   }
 
   return (
     <>
       <div style={{ position: "fixed", left: -100000, top: 0, width: 800, pointerEvents: "none" }}>
-        <ExportPreview document={previewDocument} previewRef={previewRef} />
+        <ExportPreview collection={collection} previewRef={previewRef} />
       </div>
-      <ModalShell
-        title={`分享 — ${formatDateDisplay(currentDate)}`}
-        onClose={onClose}
-        closeLabel="关闭分享"
-      >
-        <div className="share-options">
-          <Button variant="secondary" className="share-option" onClick={exportMarkdown} disabled={exporting}>
-            <div className="share-option-icon">📄</div>
-            <div className="share-option-text">
-              <strong>导出为 Markdown</strong>
-              <span>保存为 .md 文件，可导入 Notion / Obsidian / 语雀</span>
-            </div>
-          </Button>
-
-          <Button variant="secondary" className="share-option" onClick={copyAsHtml} disabled={exporting}>
-            <div className="share-option-icon">📋</div>
-            <div className="share-option-text">
-              <strong>复制为富文本</strong>
-              <span>直接粘贴到邮件 / 飞书 / 钉钉</span>
-            </div>
-          </Button>
-
-          <Button variant="secondary" className="share-option" onClick={exportPDF} disabled={exporting}>
-            <div className="share-option-icon">🖨</div>
-            <div className="share-option-text">
-              <strong>导出为 PDF</strong>
-              <span>保存为 .pdf 文件</span>
-            </div>
-          </Button>
-
-          <Button variant="secondary" className="share-option" onClick={exportImage} disabled={exporting}>
-            <div className="share-option-icon">🖼</div>
-            <div className="share-option-text">
-              <strong>导出为图片</strong>
-              <span>保存为 .png 文件</span>
-            </div>
-          </Button>
+      <ModalShell title="分享笔记" onClose={onClose} closeLabel="关闭分享">
+        <div className="share-range" aria-label="分享日期范围">
+          <div className="share-date-field">
+            <span>开始日期</span>
+            <Button aria-label="分享开始日期" variant="secondary" onClick={() => setPickerTarget("start")}>
+              {startDate}
+            </Button>
+            {pickerTarget === "start" && (
+              <div className="share-date-picker">
+                <CalendarPicker
+                  currentDate={startDate}
+                  noteDates={new Set(entries.map((entry) => entry.date))}
+                  label="选择分享开始日期"
+                  onSelect={(date) => selectRangeDate("start", date)}
+                  onClose={() => setPickerTarget(null)}
+                />
+              </div>
+            )}
+          </div>
+          <span className="share-range-separator" aria-hidden="true">—</span>
+          <div className="share-date-field">
+            <span>结束日期</span>
+            <Button aria-label="分享结束日期" variant="secondary" onClick={() => setPickerTarget("end")}>
+              {endDate}
+            </Button>
+            {pickerTarget === "end" && (
+              <div className="share-date-picker share-date-picker--end">
+                <CalendarPicker
+                  currentDate={endDate}
+                  noteDates={new Set(entries.map((entry) => entry.date))}
+                  label="选择分享结束日期"
+                  onSelect={(date) => selectRangeDate("end", date)}
+                  onClose={() => setPickerTarget(null)}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
+        <div className="share-load-state" aria-live="polite">
+          {loadState === "loading" && <StatusBadge status="saving">正在整理分享内容…</StatusBadge>}
+          {loadState === "ready" && collection.documents.length > 0 && (
+            <StatusBadge status="saved">已整理 {collection.documents.length} 天内容</StatusBadge>
+          )}
+          {loadState === "ready" && collection.documents.length === 0 && (
+            <StatusBadge status="dirty">所选范围没有可分享内容</StatusBadge>
+          )}
+          {loadState === "error" && (
+            <div className="share-load-error" role="alert">
+              <span>{loadError}</span>
+              <Button variant="secondary" aria-label="重试加载分享内容" onClick={() => void loadRange()}>
+                重试
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="share-options">
+          <Button variant="secondary" className="share-option" onClick={exportMarkdown} disabled={!canExport}>
+            <div className="share-option-icon">📄</div>
+            <div className="share-option-text"><strong>导出为 Markdown</strong><span>保存为含图片资源的 ZIP 压缩包</span></div>
+          </Button>
+          <Button variant="secondary" className="share-option" onClick={copyAsHtml} disabled={!canExport}>
+            <div className="share-option-icon">📋</div>
+            <div className="share-option-text"><strong>复制为富文本</strong><span>直接粘贴到邮件 / 飞书 / 钉钉</span></div>
+          </Button>
+          <Button variant="secondary" className="share-option" onClick={exportPDF} disabled={!canExport}>
+            <div className="share-option-icon">🖨</div>
+            <div className="share-option-text"><strong>导出为 PDF</strong><span>按日期顺序生成分页文档</span></div>
+          </Button>
+          <Button variant="secondary" className="share-option" onClick={exportImage} disabled={!canExport}>
+            <div className="share-option-icon">🖼</div>
+            <div className="share-option-text"><strong>导出为图片</strong><span>生成连续排列的 PNG 长图</span></div>
+          </Button>
+        </div>
         {exporting && <div className="share-export-status"><StatusBadge status="saving">导出中…</StatusBadge></div>}
       </ModalShell>
     </>
