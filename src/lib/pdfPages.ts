@@ -25,6 +25,19 @@ export function calculatePageSlices(totalHeight: number, idealPageHeight: number
   return slices;
 }
 
+export function collectPdfBreakpoints(element: HTMLElement, scale: number): number[] {
+  const rootTop = element.getBoundingClientRect().top;
+  const contentElements = [
+    element.querySelector(":scope > .export-header"),
+    ...element.querySelectorAll(":scope > .export-body > .export-day > *, :scope > .export-body > .export-day table tr"),
+    element.querySelector(":scope > .export-footer"),
+  ].filter((node): node is Element => Boolean(node));
+  return [...new Set(contentElements
+    .map((node) => Math.round((node.getBoundingClientRect().bottom - rootTop) * scale))
+    .filter((value) => value > 0))]
+    .sort((left, right) => left - right);
+}
+
 function canvasToPng(canvas: HTMLCanvasElement): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(async (blob) => {
@@ -45,13 +58,7 @@ export async function renderPdfPages(element: HTMLElement): Promise<Uint8Array[]
   try {
     const pageHeight = Math.round(bitmap.width * 297 / 210);
     const scale = bitmap.width / Math.max(element.scrollWidth, 1);
-    const rootTop = element.getBoundingClientRect().top;
-    const contentElements = [
-      element.querySelector(":scope > .export-header"),
-      ...element.querySelectorAll(":scope > .export-body > *"),
-      element.querySelector(":scope > .export-footer"),
-    ].filter((node): node is Element => Boolean(node));
-    const breakpoints = contentElements.map((node) => Math.round((node.getBoundingClientRect().bottom - rootTop) * scale));
+    const breakpoints = collectPdfBreakpoints(element, scale);
     const slices = calculatePageSlices(bitmap.height, pageHeight, breakpoints);
     const pages: Uint8Array[] = [];
     for (const slice of slices) {

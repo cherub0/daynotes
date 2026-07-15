@@ -54,6 +54,17 @@ async function loadExportImage(image: ExportImage): Promise<Uint8Array | null> {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceUnavailableLocalImage(markdown: string, image: ExportImage): string {
+  const target = escapeRegExp(`images/${image.filename}`);
+  return markdown.replace(new RegExp(`!\\[([^\\]]*)\\]\\(${target}\\)`, "g"), (_token, alt: string) => (
+    `[本地图片：${alt || image.alt || image.filename}]`
+  ));
+}
+
 interface ShareModalProps {
   currentDate: string;
   content: string;
@@ -77,6 +88,8 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
   const [exporting, setExporting] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef(0);
+  const startDateButtonRef = useRef<HTMLButtonElement>(null);
+  const endDateButtonRef = useRef<HTMLButtonElement>(null);
 
   const currentEntry = useMemo<ShareEntry>(
     () => ({ date: currentDate, content, todos }),
@@ -120,8 +133,13 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
     return div.textContent || "";
   }
 
-  function selectRangeDate(target: Exclude<DatePickerTarget, null>, date: string) {
+  function closeRangePicker(target: Exclude<DatePickerTarget, null>) {
     setPickerTarget(null);
+    queueMicrotask(() => (target === "start" ? startDateButtonRef : endDateButtonRef).current?.focus());
+  }
+
+  function selectRangeDate(target: Exclude<DatePickerTarget, null>, date: string) {
+    closeRangePicker(target);
     if (target === "start") {
       setStartDate(date);
       if (date > endDate) setEndDate(date);
@@ -152,9 +170,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           if (image.kind === "remote") remoteFailures += 1;
           if (image.kind === "local") {
             localSkipped += 1;
-            markdown = markdown
-              .split(`images/${image.filename}`)
-              .join(`[本地图片：${image.alt || image.filename}]`);
+            markdown = replaceUnavailableLocalImage(markdown, image);
           }
           continue;
         }
@@ -260,7 +276,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
         <div className="share-range" aria-label="分享日期范围">
           <div className="share-date-field">
             <span>开始日期</span>
-            <Button aria-label="分享开始日期" variant="secondary" onClick={() => setPickerTarget("start")}>
+            <Button ref={startDateButtonRef} aria-label="分享开始日期" variant="secondary" onClick={() => setPickerTarget("start")}>
               {startDate}
             </Button>
             {pickerTarget === "start" && (
@@ -270,7 +286,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
                   noteDates={new Set(entries.map((entry) => entry.date))}
                   label="选择分享开始日期"
                   onSelect={(date) => selectRangeDate("start", date)}
-                  onClose={() => setPickerTarget(null)}
+                  onClose={() => closeRangePicker("start")}
                 />
               </div>
             )}
@@ -278,7 +294,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
           <span className="share-range-separator" aria-hidden="true">—</span>
           <div className="share-date-field">
             <span>结束日期</span>
-            <Button aria-label="分享结束日期" variant="secondary" onClick={() => setPickerTarget("end")}>
+            <Button ref={endDateButtonRef} aria-label="分享结束日期" variant="secondary" onClick={() => setPickerTarget("end")}>
               {endDate}
             </Button>
             {pickerTarget === "end" && (
@@ -288,7 +304,7 @@ export function ShareModal({ currentDate, content, todos, onClose, onToast }: Sh
                   noteDates={new Set(entries.map((entry) => entry.date))}
                   label="选择分享结束日期"
                   onSelect={(date) => selectRangeDate("end", date)}
-                  onClose={() => setPickerTarget(null)}
+                  onClose={() => closeRangePicker("end")}
                 />
               </div>
             )}

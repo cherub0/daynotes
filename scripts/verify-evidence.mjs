@@ -8,7 +8,10 @@ export const REQUIRED_UI_SCREENSHOTS = [
   "screenshots/ui-narrow-main.png",
   "screenshots/ui-calendar-focus.png",
   "screenshots/ui-todo-progress.png",
+  "screenshots/ui-todo-schedule.png",
+  "screenshots/ui-task-list-focus.png",
   "screenshots/ui-share-modal.png",
+  "screenshots/ui-share-range.png",
   "screenshots/ui-settings-modal.png",
   "screenshots/ui-save-error.png",
 ];
@@ -31,13 +34,13 @@ export const REQUIRED_COMMAND_LOGS = [
   },
   {
     path: "logs/complete-ui.txt",
-    markers: [/"passed": true/, /"editor":\s*\{\s*"passed": 27,\s*"total": 27/, /"share":\s*\{\s*"passed": 7,\s*"total": 7/, /"acceptance":\s*\{\s*"passed": 4,\s*"total": 4/, /VERIFICATION_EXIT_CODE=0/],
-    exampleSuccess: "{\"passed\": true,\"editor\": {\"passed\": 27,\"total\": 27},\"share\": {\"passed\": 7,\"total\": 7},\"acceptance\": {\"passed\": 4,\"total\": 4}}\nVERIFICATION_EXIT_CODE=0\n",
+    markers: [/"passed": true/, /"editor":\s*\{\s*"passed": 27,\s*"total": 27/, /"share":\s*\{\s*"passed": 7,\s*"total": 7/, /"acceptance":\s*\{\s*"passed": 7,\s*"total": 7/, /VERIFICATION_EXIT_CODE=0/],
+    exampleSuccess: "{\"passed\": true,\"editor\": {\"passed\": 27,\"total\": 27},\"share\": {\"passed\": 7,\"total\": 7},\"acceptance\": {\"passed\": 7,\"total\": 7}}\nVERIFICATION_EXIT_CODE=0\n",
   },
   {
     path: "logs/rust-tests.txt",
-    markers: [/exports_the_browser_rendered_pages_as_a_real_pdf_artifact \.\.\. ok/, /test result: ok\. 12 passed; 0 failed/, /VERIFICATION_EXIT_CODE=0/],
-    exampleSuccess: "test export_pdf::tests::exports_the_browser_rendered_pages_as_a_real_pdf_artifact ... ok\ntest result: ok. 12 passed; 0 failed\nVERIFICATION_EXIT_CODE=0\n",
+    markers: [/exports_the_browser_rendered_pages_as_a_real_pdf_artifact \.\.\. ok/, /test result: ok\. 16 passed; 0 failed/, /VERIFICATION_EXIT_CODE=0/],
+    exampleSuccess: "test export_pdf::tests::exports_the_browser_rendered_pages_as_a_real_pdf_artifact ... ok\ntest result: ok. 16 passed; 0 failed\nVERIFICATION_EXIT_CODE=0\n",
   },
   {
     path: "logs/tauri-build.txt",

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { formatTodoSchedule, isTodoOverdue } from "../lib/types";
 import type { TodoItem } from "../lib/types";
 import { Button, IconButton } from "./ui/Button";
@@ -15,6 +15,16 @@ interface TodoPanelProps {
 export function TodoPanel({ currentDate, todos, onChange }: TodoPanelProps) {
   const [newText, setNewText] = useState("");
   const [openCalendarTodoId, setOpenCalendarTodoId] = useState<string | null>(null);
+  const dateButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  function restoreDateButtonFocus(todoId: string) {
+    queueMicrotask(() => dateButtonRefs.current.get(todoId)?.focus());
+  }
+
+  function closeCalendar(todoId: string) {
+    setOpenCalendarTodoId(null);
+    restoreDateButtonFocus(todoId);
+  }
 
   function generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -116,6 +126,10 @@ export function TodoPanel({ currentDate, todos, onChange }: TodoPanelProps) {
                   />
                   <div className="todo-schedule">
                     <Button
+                      ref={(element) => {
+                        if (element) dateButtonRefs.current.set(todo.id, element);
+                        else dateButtonRefs.current.delete(todo.id);
+                      }}
                       variant="subtle"
                       className="todo-date"
                       aria-label={`截止日期：${todo.text}`}
@@ -123,6 +137,18 @@ export function TodoPanel({ currentDate, todos, onChange }: TodoPanelProps) {
                     >
                       {todo.date || "选择日期"}
                     </Button>
+                    {todo.date && (
+                      <IconButton
+                        label={`清除截止日期：${todo.text}`}
+                        className="todo-date-clear"
+                        onClick={() => {
+                          updateTodo(todo.id, { date: undefined });
+                          restoreDateButtonFocus(todo.id);
+                        }}
+                      >
+                        <span aria-hidden="true">×</span>
+                      </IconButton>
+                    )}
                     <input
                       className="todo-time"
                       type="time"
@@ -139,9 +165,9 @@ export function TodoPanel({ currentDate, todos, onChange }: TodoPanelProps) {
                           label={`选择截止日期：${todo.text}`}
                           onSelect={(date) => {
                             updateTodo(todo.id, { date });
-                            setOpenCalendarTodoId(null);
+                            closeCalendar(todo.id);
                           }}
-                          onClose={() => setOpenCalendarTodoId(null)}
+                          onClose={() => closeCalendar(todo.id)}
                         />
                       </div>
                     )}

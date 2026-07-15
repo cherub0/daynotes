@@ -566,6 +566,15 @@
   white-space: nowrap;
 }
 
+.todo-date-clear.ui-icon-button {
+  width: 24px;
+  min-height: 24px;
+  flex: 0 0 24px;
+  border-color: transparent;
+  color: var(--text-muted);
+  background: transparent;
+}
+
 .todo-date-popover {
   position: absolute;
   top: calc(100% + var(--space-1));

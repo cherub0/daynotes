@@ -139,6 +139,11 @@ try {
         }
         if (cmd === "get_notes_dates") return Object.keys(notes);
         if (cmd === "get_note") return notes[args.date] || null;
+        if (cmd === "get_notes_in_range") {
+          return Object.values(notes)
+            .filter((note) => note.date >= args.startDate && note.date <= args.endDate)
+            .sort((left, right) => left.date.localeCompare(right.date));
+        }
         if (cmd === "save_note") {
           notes[args.date] = {
             date: args.date,

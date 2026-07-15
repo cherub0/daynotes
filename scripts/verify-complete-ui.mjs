@@ -125,6 +125,11 @@ try {
         if (cmd === "get_settings") return state.settings;
         if (cmd === "get_notes_dates") return Object.keys(state.notes);
         if (cmd === "get_note") return state.notes[args.date] || null;
+        if (cmd === "get_notes_in_range") {
+          return Object.values(state.notes)
+            .filter((note) => note.date >= args.startDate && note.date <= args.endDate)
+            .sort((left, right) => left.date.localeCompare(right.date));
+        }
         if (cmd === "save_note") {
           if (state.rejectNextSave) {
             state.rejectNextSave = false;
@@ -204,8 +209,20 @@ try {
   await page.getByRole("textbox", { name: "新待办" }).fill("回顾明日计划");
   await page.getByRole("textbox", { name: "新待办" }).press("Enter");
   await page.getByRole("button", { name: "完成待办：整理项目进展" }).click();
+
+  const pendingTodoDate = page.getByRole("button", { name: "截止日期：回顾明日计划", exact: true });
+  await pendingTodoDate.click();
+  const todoCalendar = page.getByLabel("选择截止日期：回顾明日计划");
+  await todoCalendar.getByRole("gridcell", { selected: true }).press("ArrowLeft");
+  await todoCalendar.locator('.calendar-day:focus').press("Enter");
+  await page.getByLabel("截止时间：回顾明日计划").fill("14:30");
+  assert(await page.getByLabel("截止时间：回顾明日计划").inputValue() === "14:30", "待办截止时间未更新");
+  assert((await pendingTodoDate.textContent()) !== "选择日期", "待办日历未更新截止日期");
   await page.screenshot({ path: path.join(screenshotDir, "ui-light-main.png") });
   await page.screenshot({ path: path.join(screenshotDir, "ui-todo-progress.png") });
+  await page.screenshot({ path: path.join(screenshotDir, "ui-todo-schedule.png") });
+  await page.getByRole("button", { name: "清除截止日期：回顾明日计划" }).click();
+  assert(await pendingTodoDate.textContent() === "选择日期", "待办截止日期未清除");
 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const settingsDialog = page.getByRole("dialog", { name: "设置" });
@@ -248,6 +265,57 @@ try {
   await focusByTab(page.getByRole("button", { name: "立即发送今日邮件", exact: true }), "页头操作");
   await focusByTab(page.getByRole("button", { name: "加粗 (Ctrl+B)", exact: true }), "编辑工具栏");
 
+  await editor.fill("临时任务");
+  await toolbar("任务列表").click();
+  await page.waitForFunction(() => document.querySelector('button[aria-label="任务列表"]')?.getAttribute("aria-pressed") === "true");
+  assert(await toolbar("任务列表").getAttribute("aria-pressed") === "true", "任务列表按钮未显示激活状态");
+  await page.getByRole("status").filter({ hasText: "任务列表编辑模式已开启" }).waitFor();
+  const taskParagraph = editor.locator('ul[data-type="taskList"] p').first();
+  await taskParagraph.click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Home");
+  await page.keyboard.press("Backspace");
+  const emptyTaskParagraph = editor.locator('ul[data-type="taskList"] p.is-empty').first();
+  await page.waitForTimeout(100);
+  assert(await emptyTaskParagraph.count() === 1, `任务列表空项提示节点缺失：${await editor.innerHTML()}`);
+  assert((await emptyTaskParagraph.getAttribute("data-placeholder"))?.includes("Enter"), "任务列表空项缺少编辑提示");
+  const taskListStyles = await emptyTaskParagraph.evaluate((paragraph) => {
+    const list = paragraph.closest('ul[data-type="taskList"]');
+    const item = paragraph.closest("li");
+    if (!list || !item) throw new Error("任务列表结构缺失");
+    return {
+      paragraphMarginTop: getComputedStyle(paragraph).marginTop,
+      paragraphMarginBottom: getComputedStyle(paragraph).marginBottom,
+      listBackground: getComputedStyle(list).backgroundColor,
+      focusedItemShadow: getComputedStyle(item).boxShadow,
+      itemClass: item.className,
+      activeElement: document.activeElement?.className || document.activeElement?.tagName || "",
+    };
+  });
+  assert(taskListStyles.paragraphMarginTop === "0px" && taskListStyles.paragraphMarginBottom === "0px", `任务列表段落间距未收紧：${JSON.stringify(taskListStyles)}`);
+  assert(taskListStyles.listBackground !== "rgba(0, 0, 0, 0)", "任务列表缺少区域背景提示");
+  assert(taskListStyles.focusedItemShadow !== "none", `任务列表当前项缺少焦点反馈：${JSON.stringify(taskListStyles)}`);
+  await page.screenshot({ path: path.join(screenshotDir, "ui-task-list-focus.png") });
+  await editor.fill("晨光纸页验证：记录今天的重要想法。");
+  await page.keyboard.press("Control+S");
+  await page.locator(".toast").waitFor({ state: "hidden" });
+
+  const rangeFixture = await page.evaluate(() => {
+    const currentDate = Object.keys(window.__verifyState.notes).sort().at(-1);
+    if (!currentDate) throw new Error("当前笔记尚未保存");
+    const previous = new Date(`${currentDate}T12:00:00`);
+    previous.setDate(previous.getDate() - 1);
+    const previousDate = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}-${String(previous.getDate()).padStart(2, "0")}`;
+    window.__verifyState.notes[previousDate] = {
+      date: previousDate,
+      content: "<p>前一天的分享内容</p>",
+      todos: JSON.stringify([{ id: "range-todo", text: "区间待办", done: false, date: previousDate, time: "09:15" }]),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    return { currentDate, previousDate };
+  });
+
   const shareTrigger = page.getByRole("button", { name: "分享", exact: true });
   await focusByTab(shareTrigger, "分享入口");
   await page.keyboard.press("Enter");
@@ -258,7 +326,16 @@ try {
   await moveDialogFocus(shareDialog, "Shift+Tab", "分享弹窗反向边界环绕");
   await moveDialogFocus(shareDialog, "Tab", "分享弹窗正向边界环绕");
   await moveDialogFocus(shareDialog, "Tab", "分享弹窗正向遍历");
+  await shareDialog.getByRole("button", { name: "分享开始日期" }).click();
+  const rangeCalendar = shareDialog.getByLabel("选择分享开始日期");
+  await rangeCalendar.getByRole("gridcell", { selected: true }).press("ArrowLeft");
+  await rangeCalendar.locator('.calendar-day:focus').press("Enter");
+  await shareDialog.getByText("已整理 2 天内容", { exact: true }).waitFor();
+  assert(await page.getByText(/区间待办/).count() >= 1, "分享预览缺少区间内待办");
+  assert(await shareDialog.getByRole("button", { name: "分享开始日期" }).textContent() === rangeFixture.previousDate, "分享开始日期未更新为前一天");
+  assert(await shareDialog.getByRole("button", { name: "分享结束日期" }).textContent() === rangeFixture.currentDate, "分享结束日期发生意外变化");
   await page.screenshot({ path: path.join(screenshotDir, "ui-share-modal.png") });
+  await page.screenshot({ path: path.join(screenshotDir, "ui-share-range.png") });
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "分享");
 
@@ -294,6 +371,9 @@ try {
     { name: "键盘焦点可见且可恢复", passed: true, details: null },
     { name: "减少动态效果", passed: true, details: transitionSeconds },
     { name: "八种视觉状态", passed: true, details: null },
+    { name: "待办日历与时间选择", passed: true, details: null },
+    { name: "任务列表编辑提示与紧凑间距", passed: true, details: taskListStyles },
+    { name: "分享日期区间", passed: true, details: rangeFixture },
   );
 
   const resetEditor = async (text = "验证文本") => {
@@ -462,7 +542,7 @@ try {
     for (const expected of ["# 一级标题", "**粗体**", "<u>下划线</u>", "<mark>高亮</mark>", "- [x] 已完成任务", "- [ ] 未完成任务", "**粗体表头**", "[单元格链接](https://example.com/cell)", "分享验证待办"]) {
       assert(command.args.markdown.includes(expected), `Markdown 缺少：${expected}`);
     }
-    assert(command.args.markdown.includes("images/image-1.png"), "Markdown 缺少图片引用");
+    assert(/images\/\d{4}-\d{2}-\d{2}-image-1\.png/.test(command.args.markdown), "Markdown 缺少带日期的唯一图片引用");
     assert(command.args.images.length === 1 && command.args.images[0].bytes.length > 8, "Markdown 图片负载缺失");
     await fs.writeFile(path.join(artifactDir, "sample.md"), command.args.markdown, "utf8");
   }, page);
@@ -522,6 +602,9 @@ try {
       await page.getByText(buttonText, { exact: true }).click();
       await page.waitForTimeout(50);
       assert(!(await commandsSince(before)).some((entry) => entry.cmd === forbidden), `${name} 仍调用了 ${forbidden}`);
+      const openDialog = page.getByRole("dialog", { name: /分享/ });
+      assert(await openDialog.isVisible(), `${name} 后分享弹窗意外关闭`);
+      await openDialog.getByRole("button", { name: "关闭分享", exact: true }).click();
     }, page);
   }
 
@@ -559,7 +642,10 @@ try {
       "screenshots/ui-narrow-main.png",
       "screenshots/ui-calendar-focus.png",
       "screenshots/ui-todo-progress.png",
+      "screenshots/ui-todo-schedule.png",
+      "screenshots/ui-task-list-focus.png",
       "screenshots/ui-share-modal.png",
+      "screenshots/ui-share-range.png",
       "screenshots/ui-settings-modal.png",
       "screenshots/ui-save-error.png",
     ],

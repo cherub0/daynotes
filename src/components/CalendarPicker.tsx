@@ -47,12 +47,13 @@ export function CalendarPicker({ currentDate, noteDates, label = "选择日期",
     function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       }
     }
 
-    document.addEventListener("keydown", handleDocumentKeyDown);
-    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
+    document.addEventListener("keydown", handleDocumentKeyDown, true);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown, true);
   }, [onClose]);
 
   useLayoutEffect(() => {

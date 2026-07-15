@@ -17,7 +17,9 @@ describe("Editor task list experience", () => {
     const source = readFileSync("src/components/Editor.tsx", "utf8");
 
     expect(source).toMatch(/ul\[data-type="taskList"\][^{]*> li > div > p\s*\{[^}]*margin:\s*0/s);
-    expect(source).toMatch(/ul\[data-type="taskList"\][^{]*> li:focus-within\s*\{[^}]*box-shadow:/s);
+    expect(source).toMatch(/ul\[data-type="taskList"\][^{]*> li\.is-current-task-item,[^{]*\{[^}]*box-shadow:/s);
+    expect(source).toContain("Decoration.node");
+    expect(source).toContain("is-current-task-item");
     expect(source).toMatch(/\.editor-content \.ProseMirror p\s*\{\s*margin:\s*\.3em 0;/);
   });
 });

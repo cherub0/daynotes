@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 // @ts-expect-error Vitest runs in Node, but this frontend project does not install Node type declarations.
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -89,10 +89,10 @@ describe("TodoPanel", () => {
     );
   });
 
-  it("通过日历选择截止日期，并可修改和清除截止时间", () => {
+  it("通过日历选择或清除截止日期，并可修改和清除截止时间", async () => {
     const onChange = vi.fn();
     const todo: TodoItem = { id: "1", text: "提交报告", done: false, date: "2026-07-31", time: "14:00" };
-    render(<TodoPanel currentDate="2026-07-15" todos={[todo]} onChange={onChange} />);
+    const { rerender } = render(<TodoPanel currentDate="2026-07-15" todos={[todo]} onChange={onChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "截止日期：提交报告" }));
     fireEvent.keyDown(screen.getByRole("gridcell", { name: /2026-07-31/ }), { key: "PageDown" });
@@ -100,6 +100,7 @@ describe("TodoPanel", () => {
     expect(onChange).toHaveBeenLastCalledWith([
       { ...todo, date: "2026-08-31" },
     ]);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "截止日期：提交报告" })));
 
     const timeInput = screen.getByLabelText("截止时间：提交报告");
     expect(timeInput.getAttribute("type")).toBe("time");
@@ -107,6 +108,13 @@ describe("TodoPanel", () => {
     expect(onChange).toHaveBeenLastCalledWith([{ ...todo, time: "15:30" }]);
     fireEvent.change(timeInput, { target: { value: "" } });
     expect(onChange).toHaveBeenLastCalledWith([{ id: "1", text: "提交报告", done: false, date: "2026-07-31", time: undefined }]);
+
+    fireEvent.click(screen.getByRole("button", { name: "清除截止日期：提交报告" }));
+    expect(onChange).toHaveBeenLastCalledWith([
+      { id: "1", text: "提交报告", done: false, date: undefined, time: "14:00" },
+    ]);
+    rerender(<TodoPanel currentDate="2026-07-15" todos={[{ ...todo, date: undefined }]} onChange={onChange} />);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "截止日期：提交报告" })));
   });
 
   it("兼容无日期旧待办，并标记逾期但未完成的事项", () => {

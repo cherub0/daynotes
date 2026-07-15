@@ -4,9 +4,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShareModal } from "./ShareModal";
 
-const { saveMock, exportPdfPagesMock, renderPdfPagesMock, getNotesInRangeMock } = vi.hoisted(() => ({
+const { saveMock, exportPdfPagesMock, exportMarkdownZipMock, readBinaryFileMock, renderPdfPagesMock, getNotesInRangeMock } = vi.hoisted(() => ({
   saveMock: vi.fn(),
   exportPdfPagesMock: vi.fn(),
+  exportMarkdownZipMock: vi.fn(),
+  readBinaryFileMock: vi.fn(),
   renderPdfPagesMock: vi.fn(),
   getNotesInRangeMock: vi.fn(),
 }));
@@ -15,10 +17,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ save: saveMock }));
 vi.mock("html-to-image", () => ({ toBlob: vi.fn() }));
 vi.mock("../lib/pdfPages", () => ({ renderPdfPages: renderPdfPagesMock }));
 vi.mock("../lib/tauri", () => ({
-  exportMarkdownZip: vi.fn(),
+  exportMarkdownZip: exportMarkdownZipMock,
   exportPdfPages: exportPdfPagesMock,
   getNotesInRange: getNotesInRangeMock,
-  readBinaryFile: vi.fn(),
+  readBinaryFile: readBinaryFileMock,
   writeBinaryFile: vi.fn(),
 }));
 
@@ -32,6 +34,7 @@ describe("ShareModal PDF export", () => {
       pages: 1,
       orientation: "portrait",
     });
+    exportMarkdownZipMock.mockResolvedValue({ path: "D:\\exports\\notes.zip", image_count: 0 });
     getNotesInRangeMock.mockResolvedValue([]);
   });
 
@@ -99,6 +102,32 @@ describe("ShareModal PDF export", () => {
     fireEvent.click(screen.getByRole("gridcell", { name: /2026-07-09/ }));
 
     await waitFor(() => expect(getNotesInRangeMock).toHaveBeenLastCalledWith("2026-07-09", "2026-07-11"));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "分享开始日期" }));
+  });
+
+  it("closes only the range calendar on Escape and restores its trigger", async () => {
+    const onClose = vi.fn();
+    render(<ShareModal currentDate="2026-07-11" content="<p>当前内容</p>" todos={[]} onClose={onClose} onToast={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "分享开始日期" });
+    fireEvent.click(trigger);
+    expect(screen.getByLabelText("选择分享开始日期")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByLabelText("选择分享开始日期")).toBeNull());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("replaces an unreadable local Markdown image with valid fallback text", async () => {
+    saveMock.mockResolvedValue("D:\\exports\\notes.zip");
+    readBinaryFileMock.mockRejectedValue(new Error("读取失败"));
+    render(<ShareModal currentDate="2026-07-11" content='<p><img src="file:///C:/notes/image.png" alt="本地图一"><img src="file:///C:/notes/image.png" alt="本地图二"></p>' todos={[]} onClose={vi.fn()} onToast={vi.fn()} />);
+    await waitFor(() => expect(getNotesInRangeMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /导出为 Markdown/ }));
+    await waitFor(() => expect(exportMarkdownZipMock).toHaveBeenCalled());
+    const markdown = exportMarkdownZipMock.mock.calls[0][2] as string;
+    expect(markdown).toContain("[本地图片：本地图一]");
+    expect(markdown).toContain("[本地图片：本地图二]");
+    expect(markdown).not.toContain("](images/");
   });
 
   it("keeps the dialog open after a load error and retries", async () => {

@@ -1,4 +1,7 @@
 import { EditorContent, useEditor } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -19,6 +22,28 @@ import { EditorToolbar } from "./editor/EditorToolbar";
 import { readImageAsDataUrl, validateImageFile } from "./editor/imageFiles";
 
 const lowlight = createLowlight(common);
+
+const CurrentTaskItem = Extension.create({
+  name: "currentTaskItem",
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      props: {
+        decorations(state) {
+          const { $from } = state.selection;
+          for (let depth = $from.depth; depth > 0; depth -= 1) {
+            const node = $from.node(depth);
+            if (node.type.name !== "taskItem") continue;
+            const from = $from.before(depth);
+            return DecorationSet.create(state.doc, [
+              Decoration.node(from, from + node.nodeSize, { class: "is-current-task-item" }),
+            ]);
+          }
+          return DecorationSet.empty;
+        },
+      },
+    })];
+  },
+});
 
 interface EditorProps {
   content: string;
@@ -45,6 +70,7 @@ export function Editor({ content, onChange, saveStatus, onRetrySave }: EditorPro
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      CurrentTaskItem,
       CodeBlockLowlight.configure({ lowlight, defaultLanguage: "plaintext" }),
       Image.configure({ inline: true, allowBase64: true }),
       Table.configure({ resizable: true }),
@@ -145,7 +171,7 @@ export function Editor({ content, onChange, saveStatus, onRetrySave }: EditorPro
         [data-theme="dark"] .editor-content .ProseMirror mark { --highlight-bg:#5c4a00; }
         .editor-content .ProseMirror ul[data-type="taskList"] { list-style:none; margin:.5em 0; padding:8px 10px; border-left:3px solid var(--accent); border-radius:var(--radius-sm); background:var(--surface-inset); }
         .editor-content .ProseMirror ul[data-type="taskList"] > li { display:flex; align-items:flex-start; gap:8px; margin:4px 0; padding:4px 6px; border-radius:var(--radius-sm); transition:background var(--motion-fast) var(--ease-standard),box-shadow var(--motion-fast) var(--ease-standard); }
-        .editor-content .ProseMirror ul[data-type="taskList"] > li:focus-within { background:var(--surface-paper); box-shadow:0 0 0 2px var(--focus-ring); }
+        .editor-content .ProseMirror ul[data-type="taskList"] > li.is-current-task-item,.editor-content .ProseMirror ul[data-type="taskList"] > li:focus-within { background:var(--surface-paper); box-shadow:0 0 0 2px var(--focus-ring); }
         .editor-content .ProseMirror ul[data-type="taskList"] > li > label { margin-top:2px; }
         .editor-content .ProseMirror ul[data-type="taskList"] input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
         .editor-content .ProseMirror ul[data-type="taskList"] > li > div { flex:1; min-width:0; }
