@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
-import { parseExportDocument, renderMarkdown } from "./exportDocument";
+import {
+  createExportCollection,
+  parseExportDocument,
+  renderCollectionMarkdown,
+  renderMarkdown,
+} from "./exportDocument";
 
 describe("export document", () => {
   it("parses rich note blocks and renders portable Markdown", () => {
@@ -78,5 +83,32 @@ describe("export document", () => {
     expect(markdown).toContain("- [ ] 未完成任务");
     expect(markdown).toContain("**粗体表头**");
     expect(markdown).toContain("[单元格链接](https://example.com/cell)");
+  });
+
+  it("renders multiple days in order with unique image names and scheduled todos", () => {
+    const collection = createExportCollection("2026-07-12", "2026-07-14", [
+      {
+        date: "2026-07-14",
+        content: '<p>第二天</p><img src="data:image/png;base64,YQ==" alt="二">',
+        todos: [{ id: "2", text: "复盘", done: false, date: "2026-07-14", time: "14:30" }],
+      },
+      {
+        date: "2026-07-12",
+        content: '<p>第一天</p><img src="data:image/png;base64,Yg==" alt="一">',
+        todos: [],
+      },
+    ]);
+
+    const output = renderCollectionMarkdown(collection);
+
+    expect(output.markdown.indexOf("# 2026-07-12")).toBeLessThan(
+      output.markdown.indexOf("# 2026-07-14"),
+    );
+    expect(output.markdown).toContain("截止：2026-07-14 14:30");
+    expect(new Set(output.images.map((image) => image.filename)).size).toBe(output.images.length);
+    expect(output.images.map((image) => image.filename)).toEqual([
+      "2026-07-12-image-1.png",
+      "2026-07-14-image-1.png",
+    ]);
   });
 });

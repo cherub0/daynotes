@@ -4,6 +4,7 @@ export interface TodoItem {
   id: string;
   text: string;
   done: boolean;
+  date?: string; // "YYYY-MM-DD"
   time?: string; // "HH:MM"
 }
 
@@ -36,10 +37,16 @@ export interface AppSettings {
 
 export function parseTodos(todosJson: string): TodoItem[] {
   try {
-    return JSON.parse(todosJson);
+    const parsed: unknown = JSON.parse(todosJson);
+    return Array.isArray(parsed) ? parsed as TodoItem[] : [];
   } catch {
     return [];
   }
+}
+
+export function formatTodoSchedule(todo: TodoItem): string {
+  const schedule = [todo.date, todo.time].filter(Boolean).join(" ");
+  return schedule ? `（截止：${schedule}）` : "";
 }
 
 export function formatDate(date: Date): string {
