@@ -235,6 +235,56 @@ fn get_note(state: tauri::State<DbState>, date: String) -> Result<Option<Note>, 
     }
 }
 
+fn parse_iso_date(value: &str) -> Result<chrono::NaiveDate, String> {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| format!("无效日期：{value}"))
+}
+
+fn query_notes_in_range(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<Vec<Note>, String> {
+    let start = parse_iso_date(start_date)?;
+    let end = parse_iso_date(end_date)?;
+    if start > end {
+        return Err("开始日期不能晚于结束日期".to_string());
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT date, content, todos, created_at, updated_at
+             FROM notes
+             WHERE date BETWEEN ?1 AND ?2
+             ORDER BY date ASC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![start_date, end_date], |row| {
+            Ok(Note {
+                date: row.get(0)?,
+                content: row.get(1)?,
+                todos: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_notes_in_range(
+    state: tauri::State<DbState>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<Note>, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    query_notes_in_range(&db, &start_date, &end_date)
+}
+
 #[tauri::command]
 fn get_notes_dates(state: tauri::State<DbState>) -> Result<Vec<String>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -569,6 +619,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_note,
             get_note,
+            get_notes_in_range,
             get_notes_dates,
             delete_note,
             get_settings,
@@ -619,5 +670,52 @@ mod tests {
         assert_eq!(settings.theme, "system");
         assert_eq!(settings.font_size, 14);
         assert!(!settings.email.enabled);
+    }
+
+    #[test]
+    fn query_notes_in_range_is_inclusive_and_ascending() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        for date in ["2026-07-14", "2026-07-12", "2026-07-13", "2026-07-16"] {
+            conn.execute(
+                "INSERT INTO notes (date, content, todos) VALUES (?1, '<p>x</p>', '[]')",
+                params![date],
+            )
+            .unwrap();
+        }
+
+        let notes = query_notes_in_range(&conn, "2026-07-12", "2026-07-14").unwrap();
+
+        assert_eq!(
+            notes
+                .into_iter()
+                .map(|note| note.date)
+                .collect::<Vec<_>>(),
+            vec!["2026-07-12", "2026-07-13", "2026-07-14"]
+        );
+    }
+
+    #[test]
+    fn query_notes_in_range_returns_no_rows_outside_the_range() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        conn.execute(
+            "INSERT INTO notes (date, content, todos) VALUES ('2026-07-10', '<p>x</p>', '[]')",
+            [],
+        )
+        .unwrap();
+
+        let notes = query_notes_in_range(&conn, "2026-07-12", "2026-07-14").unwrap();
+
+        assert!(notes.is_empty());
+    }
+
+    #[test]
+    fn query_notes_in_range_rejects_invalid_or_reversed_dates() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+
+        assert!(query_notes_in_range(&conn, "2026-02-30", "2026-03-01").is_err());
+        assert!(query_notes_in_range(&conn, "2026-07-15", "2026-07-14").is_err());
     }
 }
