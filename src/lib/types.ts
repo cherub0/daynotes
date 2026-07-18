@@ -35,6 +35,7 @@ export interface EmailSettings {
   smtp_port: number;
   username: string;
   password: string;
+  password_saved?: boolean;
   recipient: string;
   send_time: string; // "HH:MM"
   weekdays_only: boolean;

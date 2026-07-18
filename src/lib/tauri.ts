@@ -66,6 +66,10 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   return invoke("save_settings", { settings });
 }
 
+export async function clearEmailPassword(): Promise<AppSettings> {
+  return invoke("clear_email_password");
+}
+
 // ── Data Protection ─────────────────────────────────────────────
 
 export async function getBackupStatus(): Promise<BackupStatus> {
