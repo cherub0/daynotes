@@ -3,10 +3,10 @@ mod export_pdf;
 mod window_lifecycle;
 mod email;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, DatabaseName, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -92,15 +92,30 @@ pub struct NoteDatesResponse {
     pub dates: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackupStatus {
+    pub last_auto_backup_at: Option<String>,
+    pub last_auto_backup_path: Option<String>,
+    pub last_error: Option<String>,
+}
+
 // ── Database State ───────────────────────────────────────────────
 
 pub struct DbState {
     pub db: Mutex<Connection>,
 }
 
+const BACKUP_STATUS_KEY: &str = "backup_status";
+
 fn get_db_path(app_data_dir: &PathBuf) -> PathBuf {
     fs::create_dir_all(app_data_dir).ok();
     app_data_dir.join("daynotes.db")
+}
+
+fn get_backup_dir(app_data_dir: &Path) -> PathBuf {
+    let dir = app_data_dir.join("backups");
+    fs::create_dir_all(&dir).ok();
+    dir
 }
 
 fn init_db(conn: &Connection) {
@@ -377,6 +392,128 @@ fn save_note_with_revision(
     tx.commit().map_err(|error| error.to_string())
 }
 
+fn now_local_string() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+fn backup_file_name(label: &str) -> String {
+    let stamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string();
+    format!("{label}-{stamp}.db")
+}
+
+fn read_backup_status(conn: &Connection) -> Result<BackupStatus, String> {
+    let value = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![BACKUP_STATUS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .unwrap_or_else(|| "{}".to_string());
+
+    serde_json::from_str::<BackupStatus>(&value).or(Ok(BackupStatus {
+        last_auto_backup_at: None,
+        last_auto_backup_path: None,
+        last_error: None,
+    }))
+}
+
+fn write_backup_status(conn: &Connection, status: &BackupStatus) -> Result<(), String> {
+    let value = serde_json::to_string(status).map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![BACKUP_STATUS_KEY, value],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn validate_backup_file(path: &Path) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|error| format!("无法打开备份：{error}"))?;
+    let result: String = conn
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|error| format!("备份校验失败：{error}"))?;
+    if result == "ok" {
+        Ok(())
+    } else {
+        Err(format!("备份文件已损坏：{result}"))
+    }
+}
+
+fn create_database_backup(conn: &Connection, backup_dir: &Path, label: &str) -> Result<PathBuf, String> {
+    fs::create_dir_all(backup_dir).map_err(|error| error.to_string())?;
+    let path = backup_dir.join(backup_file_name(label));
+    conn.backup(DatabaseName::Main, &path, None)
+        .map_err(|error| format!("创建备份失败：{error}"))?;
+    validate_backup_file(&path)?;
+    Ok(path)
+}
+
+fn restore_database_from_backup(conn: &mut Connection, backup_path: &Path) -> Result<(), String> {
+    validate_backup_file(backup_path)?;
+    conn.restore(
+        DatabaseName::Main,
+        backup_path,
+        None::<fn(rusqlite::backup::Progress)>,
+    )
+    .map_err(|error| format!("恢复备份失败：{error}"))?;
+    Ok(())
+}
+
+fn prune_auto_backups(backup_dir: &Path, keep: usize) -> Result<(), String> {
+    let mut files = fs::read_dir(backup_dir)
+        .map_err(|error| error.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("auto-"))
+        .collect::<Vec<_>>();
+    files.sort_by_key(|entry| entry.file_name());
+    while files.len() > keep {
+        let entry = files.remove(0);
+        fs::remove_file(entry.path()).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_daily_backup(conn: &Connection, app_data_dir: &Path) -> Result<(), String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let status = read_backup_status(conn)?;
+    if status
+        .last_auto_backup_at
+        .as_deref()
+        .is_some_and(|value| value.starts_with(&today))
+    {
+        return Ok(());
+    }
+
+    let backup_dir = get_backup_dir(app_data_dir);
+    match create_database_backup(conn, &backup_dir, "auto") {
+        Ok(path) => {
+            prune_auto_backups(&backup_dir, 7)?;
+            write_backup_status(
+                conn,
+                &BackupStatus {
+                    last_auto_backup_at: Some(now_local_string()),
+                    last_auto_backup_path: Some(path.to_string_lossy().to_string()),
+                    last_error: None,
+                },
+            )
+        }
+        Err(error) => {
+            let _ = write_backup_status(
+                conn,
+                &BackupStatus {
+                    last_auto_backup_at: status.last_auto_backup_at,
+                    last_auto_backup_path: status.last_auto_backup_path,
+                    last_error: Some(error.clone()),
+                },
+            );
+            Err(error)
+        }
+    }
+}
+
 #[tauri::command]
 fn get_notes_in_range(
     state: tauri::State<DbState>,
@@ -416,6 +553,40 @@ fn restore_note_revision(state: tauri::State<DbState>, revision_id: i64) -> Resu
 
     save_note_with_revision(&mut db, &revision.note_date, &revision.content, &revision.todos)?;
     get_note_from_conn(&db, &revision.note_date)?.ok_or_else(|| "恢复后未找到便签".to_string())
+}
+
+#[tauri::command]
+fn get_backup_status(state: tauri::State<DbState>) -> Result<BackupStatus, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    read_backup_status(&db)
+}
+
+#[tauri::command]
+fn create_manual_backup(app: tauri::AppHandle, state: tauri::State<DbState>) -> Result<String, String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let backup_dir = get_backup_dir(&app_data_dir);
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    let path = create_database_backup(&db, &backup_dir, "manual")?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn restore_database_backup(
+    app: tauri::AppHandle,
+    state: tauri::State<DbState>,
+    path: String,
+) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let backup_dir = get_backup_dir(&app_data_dir);
+    let backup_path = PathBuf::from(path);
+    let mut db = state.db.lock().map_err(|error| error.to_string())?;
+    let pre_restore = create_database_backup(&db, &backup_dir, "pre-restore")?;
+    let result = restore_database_from_backup(&mut db, &backup_path);
+    if let Err(error) = result {
+        let _ = restore_database_from_backup(&mut db, &pre_restore);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -655,6 +826,9 @@ pub fn run() {
             conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
                 .ok();
             init_db(&conn);
+            if let Err(error) = ensure_daily_backup(&conn, &app_data_dir) {
+                log::error!("Daily backup failed: {}", error);
+            }
 
             app.manage(DbState {
                 db: Mutex::new(conn),
@@ -755,6 +929,9 @@ pub fn run() {
             get_notes_in_range,
             get_note_revisions,
             restore_note_revision,
+            get_backup_status,
+            create_manual_backup,
+            restore_database_backup,
             get_notes_dates,
             delete_note,
             get_settings,
@@ -881,6 +1058,41 @@ mod tests {
         let revisions = query_note_revisions(&conn, "2026-07-18").unwrap();
         assert_eq!(revisions.len(), 10);
         assert_eq!(revisions.last().unwrap().content, "<p>1</p>");
+    }
+
+    #[test]
+    fn automatic_backup_retains_seven_days() {
+        let temp = std::env::temp_dir().join(format!(
+            "daynotes-backup-test-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        for day in 1..=9 {
+            fs::write(temp.join(format!("auto-2026-07-{day:02}.db")), b"x").unwrap();
+        }
+
+        prune_auto_backups(&temp, 7).unwrap();
+
+        let count = fs::read_dir(&temp).unwrap().count();
+        assert_eq!(count, 7);
+        assert!(!temp.join("auto-2026-07-01.db").exists());
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn restore_rejects_invalid_backup_file() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let bad_file = std::env::temp_dir().join(format!(
+            "daynotes-bad-{}.db",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::write(&bad_file, b"not sqlite").unwrap();
+
+        let result = restore_database_from_backup(&mut conn, &bad_file);
+
+        assert!(result.is_err());
+        let _ = fs::remove_file(bad_file);
     }
 
     #[test]
