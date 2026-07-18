@@ -2,15 +2,22 @@ mod export_zip;
 mod export_pdf;
 mod window_lifecycle;
 mod email;
+mod credentials;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, DatabaseName, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
+use credentials::{
+    attach_password_saved_state,
+    migrate_plaintext_password,
+    sanitize_settings_for_storage,
+    EmailCredentialStore,
+};
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -21,6 +28,15 @@ pub struct Note {
     pub todos: String,      // JSON array of TodoItem
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteRevision {
+    pub id: i64,
+    pub note_date: String,
+    pub content: String,
+    pub todos: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -38,7 +54,8 @@ pub struct EmailSettings {
     pub smtp_host: String,
     pub smtp_port: u16,
     pub username: String,
-    pub password: String,       // encrypted in storage
+    pub password: String,
+    pub password_saved: bool,
     pub recipient: String,
     pub send_time: String,      // "HH:MM"
     pub weekdays_only: bool,
@@ -52,6 +69,7 @@ impl Default for EmailSettings {
             smtp_port: 465,
             username: "".to_string(),
             password: "".to_string(),
+            password_saved: false,
             recipient: "".to_string(),
             send_time: "08:00".to_string(),
             weekdays_only: true,
@@ -83,15 +101,31 @@ pub struct NoteDatesResponse {
     pub dates: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackupStatus {
+    pub last_auto_backup_at: Option<String>,
+    pub last_auto_backup_path: Option<String>,
+    pub last_error: Option<String>,
+}
+
 // ── Database State ───────────────────────────────────────────────
 
 pub struct DbState {
     pub db: Mutex<Connection>,
 }
 
+const APP_SETTINGS_KEY: &str = "app_settings";
+const BACKUP_STATUS_KEY: &str = "backup_status";
+
 fn get_db_path(app_data_dir: &PathBuf) -> PathBuf {
     fs::create_dir_all(app_data_dir).ok();
     app_data_dir.join("daynotes.db")
+}
+
+fn get_backup_dir(app_data_dir: &Path) -> PathBuf {
+    let dir = app_data_dir.join("backups");
+    fs::create_dir_all(&dir).ok();
+    dir
 }
 
 fn init_db(conn: &Connection) {
@@ -107,6 +141,15 @@ fn init_db(conn: &Connection) {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS note_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_date TEXT NOT NULL,
+            content TEXT NOT NULL,
+            todos TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_note_revisions_note_date_created_at
+        ON note_revisions(note_date, created_at DESC, id DESC);
         INSERT OR IGNORE INTO settings (key, value) VALUES ('app_settings', '{}');
         INSERT OR IGNORE INTO settings (key, value) VALUES ('last_sent_date', '');",
     )
@@ -117,21 +160,97 @@ pub(crate) fn parse_app_settings(value: &str) -> AppSettings {
     serde_json::from_str::<AppSettings>(value).unwrap_or_default()
 }
 
+fn read_app_settings_json(conn: &Connection) -> Result<String, String> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![APP_SETTINGS_KEY],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+    .map(|value| value.unwrap_or_else(|| "{}".to_string()))
+}
+
+fn write_app_settings_json(conn: &Connection, settings: &AppSettings) -> Result<(), String> {
+    let value = serde_json::to_string(settings).map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![APP_SETTINGS_KEY, value],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn load_app_settings(
+    conn: &Connection,
+    store: &dyn EmailCredentialStore,
+) -> Result<AppSettings, String> {
+    let value = read_app_settings_json(conn)?;
+    let mut settings = parse_app_settings(&value);
+    let migrated = migrate_plaintext_password(&mut settings, store)?;
+    if migrated {
+        let mut stored = settings.clone();
+        sanitize_settings_for_storage(&mut stored);
+        write_app_settings_json(conn, &stored)?;
+    }
+    attach_password_saved_state(&mut settings, store)?;
+    Ok(settings)
+}
+
+fn save_app_settings(
+    conn: &Connection,
+    mut settings: AppSettings,
+    store: &dyn EmailCredentialStore,
+) -> Result<AppSettings, String> {
+    let submitted_password = settings.email.password.trim().to_string();
+    if !submitted_password.is_empty() {
+        store.set_password(&submitted_password)?;
+    }
+
+    sanitize_settings_for_storage(&mut settings);
+    write_app_settings_json(conn, &settings)?;
+    attach_password_saved_state(&mut settings, store)?;
+    Ok(settings)
+}
+
+fn clear_email_password_from_store(
+    conn: &Connection,
+    store: &dyn EmailCredentialStore,
+) -> Result<AppSettings, String> {
+    store.delete_password()?;
+    let mut settings = load_app_settings(conn, store)?;
+    settings.email.password.clear();
+    settings.email.password_saved = false;
+    Ok(settings)
+}
+
+pub(crate) fn resolve_email_settings_for_send(
+    conn: &Connection,
+    store: &dyn EmailCredentialStore,
+) -> Result<EmailSettings, String> {
+    let settings = load_app_settings(conn, store)?;
+    let mut email = settings.email;
+    let password = store
+        .get_password()?
+        .ok_or_else(|| "未保存 SMTP 授权码，请在设置中重新填写".to_string())?;
+    email.password = password;
+    email.password_saved = true;
+    Ok(email)
+}
+
+pub(crate) fn system_credential_store() -> credentials::SystemEmailCredentialStore {
+    credentials::SystemEmailCredentialStore
+}
+
 // ── Email Helper ─────────────────────────────────────────────────
 
 fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
-    let settings = {
+    let email = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db
-            .prepare("SELECT value FROM settings WHERE key = 'app_settings'")
-            .map_err(|e| e.to_string())?;
-        let value: String = stmt
-            .query_row([], |row| row.get(0))
-            .unwrap_or_else(|_| "{}".to_string());
-        parse_app_settings(&value)
+        resolve_email_settings_for_send(&db, &system_credential_store())?
     };
 
-    let email = &settings.email;
     if !email.enabled {
         return Err("Email sending is not enabled".to_string());
     }
@@ -200,7 +319,7 @@ fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
         if summary.is_empty() { "无笔记内容".to_string() } else { summary }
     );
 
-    send_email_smtp(email, &subject, &body)?;
+    send_email_smtp(&email, &subject, &body)?;
 
     Ok(format!("Email sent to {}", email.recipient))
 }
@@ -209,45 +328,38 @@ fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn save_note(state: tauri::State<DbState>, date: String, content: String, todos: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.execute(
-        "INSERT INTO notes (date, content, todos, updated_at)
-         VALUES (?1, ?2, ?3, datetime('now', 'localtime'))
-         ON CONFLICT(date) DO UPDATE SET
-           content = excluded.content,
-           todos = excluded.todos,
-           updated_at = datetime('now', 'localtime')",
-        params![date, content, todos],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    save_note_with_revision(&mut db, &date, &content, &todos)
 }
 
 #[tauri::command]
 fn get_note(state: tauri::State<DbState>, date: String) -> Result<Option<Note>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db
-        .prepare("SELECT date, content, todos, created_at, updated_at FROM notes WHERE date = ?1")
-        .map_err(|e| e.to_string())?;
-    let mut rows = stmt.query_map(params![date], |row| {
-        Ok(Note {
-            date: row.get(0)?,
-            content: row.get(1)?,
-            todos: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
-        })
-    })
-    .map_err(|e| e.to_string())?;
-    match rows.next() {
-        Some(Ok(note)) => Ok(Some(note)),
-        _ => Ok(None),
-    }
+    get_note_from_conn(&db, &date)
 }
 
 fn parse_iso_date(value: &str) -> Result<chrono::NaiveDate, String> {
     chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| format!("无效日期：{value}"))
+}
+
+fn get_note_from_conn(conn: &Connection, date: &str) -> Result<Option<Note>, String> {
+    parse_iso_date(date)?;
+    conn.query_row(
+        "SELECT date, content, todos, created_at, updated_at FROM notes WHERE date = ?1",
+        params![date],
+        |row| {
+            Ok(Note {
+                date: row.get(0)?,
+                content: row.get(1)?,
+                todos: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|error| error.to_string())
 }
 
 fn query_notes_in_range(
@@ -285,6 +397,209 @@ fn query_notes_in_range(
         .map_err(|error| error.to_string())
 }
 
+fn query_note_revisions(conn: &Connection, date: &str) -> Result<Vec<NoteRevision>, String> {
+    parse_iso_date(date)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, note_date, content, todos, created_at
+             FROM note_revisions
+             WHERE note_date = ?1
+             ORDER BY created_at DESC, id DESC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![date], |row| {
+            Ok(NoteRevision {
+                id: row.get(0)?,
+                note_date: row.get(1)?,
+                content: row.get(2)?,
+                todos: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+fn save_note_with_revision(
+    conn: &mut Connection,
+    date: &str,
+    content: &str,
+    todos: &str,
+) -> Result<(), String> {
+    parse_iso_date(date)?;
+    serde_json::from_str::<Vec<TodoItem>>(todos)
+        .map_err(|error| format!("无效待办数据：{error}"))?;
+
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    let existing = tx
+        .query_row(
+            "SELECT content, todos FROM notes WHERE date = ?1",
+            params![date],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some((old_content, old_todos)) = existing {
+        if old_content != content || old_todos != todos {
+            tx.execute(
+                "INSERT INTO note_revisions (note_date, content, todos) VALUES (?1, ?2, ?3)",
+                params![date, old_content, old_todos],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.execute(
+                "DELETE FROM note_revisions
+                 WHERE note_date = ?1
+                 AND id NOT IN (
+                   SELECT id FROM note_revisions
+                   WHERE note_date = ?1
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 10
+                 )",
+                params![date],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+
+    tx.execute(
+        "INSERT INTO notes (date, content, todos, updated_at)
+         VALUES (?1, ?2, ?3, datetime('now', 'localtime'))
+         ON CONFLICT(date) DO UPDATE SET
+           content = excluded.content,
+           todos = excluded.todos,
+           updated_at = datetime('now', 'localtime')",
+        params![date, content, todos],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
+fn now_local_string() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+fn backup_file_name(label: &str) -> String {
+    let stamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string();
+    format!("{label}-{stamp}.db")
+}
+
+fn read_backup_status(conn: &Connection) -> Result<BackupStatus, String> {
+    let value = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![BACKUP_STATUS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .unwrap_or_else(|| "{}".to_string());
+
+    serde_json::from_str::<BackupStatus>(&value).or(Ok(BackupStatus {
+        last_auto_backup_at: None,
+        last_auto_backup_path: None,
+        last_error: None,
+    }))
+}
+
+fn write_backup_status(conn: &Connection, status: &BackupStatus) -> Result<(), String> {
+    let value = serde_json::to_string(status).map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![BACKUP_STATUS_KEY, value],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn validate_backup_file(path: &Path) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|error| format!("无法打开备份：{error}"))?;
+    let result: String = conn
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|error| format!("备份校验失败：{error}"))?;
+    if result == "ok" {
+        Ok(())
+    } else {
+        Err(format!("备份文件已损坏：{result}"))
+    }
+}
+
+fn create_database_backup(conn: &Connection, backup_dir: &Path, label: &str) -> Result<PathBuf, String> {
+    fs::create_dir_all(backup_dir).map_err(|error| error.to_string())?;
+    let path = backup_dir.join(backup_file_name(label));
+    conn.backup(DatabaseName::Main, &path, None)
+        .map_err(|error| format!("创建备份失败：{error}"))?;
+    validate_backup_file(&path)?;
+    Ok(path)
+}
+
+fn restore_database_from_backup(conn: &mut Connection, backup_path: &Path) -> Result<(), String> {
+    validate_backup_file(backup_path)?;
+    conn.restore(
+        DatabaseName::Main,
+        backup_path,
+        None::<fn(rusqlite::backup::Progress)>,
+    )
+    .map_err(|error| format!("恢复备份失败：{error}"))?;
+    Ok(())
+}
+
+fn prune_auto_backups(backup_dir: &Path, keep: usize) -> Result<(), String> {
+    let mut files = fs::read_dir(backup_dir)
+        .map_err(|error| error.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("auto-"))
+        .collect::<Vec<_>>();
+    files.sort_by_key(|entry| entry.file_name());
+    while files.len() > keep {
+        let entry = files.remove(0);
+        fs::remove_file(entry.path()).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_daily_backup(conn: &Connection, app_data_dir: &Path) -> Result<(), String> {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let status = read_backup_status(conn)?;
+    if status
+        .last_auto_backup_at
+        .as_deref()
+        .is_some_and(|value| value.starts_with(&today))
+    {
+        return Ok(());
+    }
+
+    let backup_dir = get_backup_dir(app_data_dir);
+    match create_database_backup(conn, &backup_dir, "auto") {
+        Ok(path) => {
+            prune_auto_backups(&backup_dir, 7)?;
+            write_backup_status(
+                conn,
+                &BackupStatus {
+                    last_auto_backup_at: Some(now_local_string()),
+                    last_auto_backup_path: Some(path.to_string_lossy().to_string()),
+                    last_error: None,
+                },
+            )
+        }
+        Err(error) => {
+            let _ = write_backup_status(
+                conn,
+                &BackupStatus {
+                    last_auto_backup_at: status.last_auto_backup_at,
+                    last_auto_backup_path: status.last_auto_backup_path,
+                    last_error: Some(error.clone()),
+                },
+            );
+            Err(error)
+        }
+    }
+}
+
 #[tauri::command]
 fn get_notes_in_range(
     state: tauri::State<DbState>,
@@ -293,6 +608,71 @@ fn get_notes_in_range(
 ) -> Result<Vec<Note>, String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
     query_notes_in_range(&db, &start_date, &end_date)
+}
+
+#[tauri::command]
+fn get_note_revisions(state: tauri::State<DbState>, date: String) -> Result<Vec<NoteRevision>, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    query_note_revisions(&db, &date)
+}
+
+#[tauri::command]
+fn restore_note_revision(state: tauri::State<DbState>, revision_id: i64) -> Result<Note, String> {
+    let mut db = state.db.lock().map_err(|error| error.to_string())?;
+    let revision = db
+        .query_row(
+            "SELECT id, note_date, content, todos, created_at FROM note_revisions WHERE id = ?1",
+            params![revision_id],
+            |row| {
+                Ok(NoteRevision {
+                    id: row.get(0)?,
+                    note_date: row.get(1)?,
+                    content: row.get(2)?,
+                    todos: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "历史版本不存在".to_string())?;
+
+    save_note_with_revision(&mut db, &revision.note_date, &revision.content, &revision.todos)?;
+    get_note_from_conn(&db, &revision.note_date)?.ok_or_else(|| "恢复后未找到便签".to_string())
+}
+
+#[tauri::command]
+fn get_backup_status(state: tauri::State<DbState>) -> Result<BackupStatus, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    read_backup_status(&db)
+}
+
+#[tauri::command]
+fn create_manual_backup(app: tauri::AppHandle, state: tauri::State<DbState>) -> Result<String, String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let backup_dir = get_backup_dir(&app_data_dir);
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    let path = create_database_backup(&db, &backup_dir, "manual")?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn restore_database_backup(
+    app: tauri::AppHandle,
+    state: tauri::State<DbState>,
+    path: String,
+) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let backup_dir = get_backup_dir(&app_data_dir);
+    let backup_path = PathBuf::from(path);
+    let mut db = state.db.lock().map_err(|error| error.to_string())?;
+    let pre_restore = create_database_backup(&db, &backup_dir, "pre-restore")?;
+    let result = restore_database_from_backup(&mut db, &backup_path);
+    if let Err(error) = result {
+        let _ = restore_database_from_backup(&mut db, &pre_restore);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -320,26 +700,19 @@ fn delete_note(state: tauri::State<DbState>, date: String) -> Result<(), String>
 #[tauri::command]
 fn get_settings(state: tauri::State<DbState>) -> Result<AppSettings, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db
-        .prepare("SELECT value FROM settings WHERE key = 'app_settings'")
-        .map_err(|e| e.to_string())?;
-    let value: String = stmt
-        .query_row([], |row| row.get(0))
-        .unwrap_or_else(|_| "{}".to_string());
-    Ok(parse_app_settings(&value))
+    load_app_settings(&db, &system_credential_store())
 }
 
 #[tauri::command]
 fn save_settings(state: tauri::State<DbState>, settings: AppSettings) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let value = serde_json::to_string(&settings).map_err(|e| e.to_string())?;
-    db.execute(
-        "INSERT INTO settings (key, value) VALUES ('app_settings', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![value],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    save_app_settings(&db, settings, &system_credential_store()).map(|_| ())
+}
+
+#[tauri::command]
+fn clear_email_password(state: tauri::State<DbState>) -> Result<AppSettings, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    clear_email_password_from_store(&db, &system_credential_store())
 }
 
 #[tauri::command]
@@ -430,16 +803,13 @@ fn scheduler_tick(app_handle: &tauri::AppHandle) {
             Err(_) => return,
         };
 
-        // Read settings
-        let mut stmt = match db.prepare("SELECT value FROM settings WHERE key = 'app_settings'") {
-            Ok(s) => s,
-            Err(_) => return,
+        let settings = match load_app_settings(&db, &system_credential_store()) {
+            Ok(settings) => settings,
+            Err(error) => {
+                log::error!("Read email settings failed: {}", error);
+                return;
+            }
         };
-        let value: String = match stmt.query_row([], |row| row.get(0)) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let settings = parse_app_settings(&value);
 
         let email = &settings.email;
         if !email.enabled {
@@ -532,6 +902,9 @@ pub fn run() {
             conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
                 .ok();
             init_db(&conn);
+            if let Err(error) = ensure_daily_backup(&conn, &app_data_dir) {
+                log::error!("Daily backup failed: {}", error);
+            }
 
             app.manage(DbState {
                 db: Mutex::new(conn),
@@ -630,10 +1003,16 @@ pub fn run() {
             save_note,
             get_note,
             get_notes_in_range,
+            get_note_revisions,
+            restore_note_revision,
+            get_backup_status,
+            create_manual_backup,
+            restore_database_backup,
             get_notes_dates,
             delete_note,
             get_settings,
             save_settings,
+            clear_email_password,
             send_daily_email,
             write_text_file,
             write_binary_file,
@@ -649,6 +1028,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credentials::EmailCredentialStore;
 
     #[test]
     fn parse_app_settings_uses_defaults_for_empty_json() {
@@ -680,6 +1060,110 @@ mod tests {
         assert_eq!(settings.theme, "system");
         assert_eq!(settings.font_size, 14);
         assert!(!settings.email.enabled);
+    }
+
+    #[test]
+    fn save_app_settings_does_not_store_plaintext_email_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        let mut settings = AppSettings::default();
+        settings.email.username = "sender@qq.com".to_string();
+        settings.email.password = "new-code".to_string();
+
+        let returned = save_app_settings(&conn, settings, &store).unwrap();
+
+        let stored_json: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'app_settings'", [], |row| row.get(0))
+            .unwrap();
+        assert!(!stored_json.contains("new-code"));
+        assert_eq!(store.get_password().unwrap().as_deref(), Some("new-code"));
+        assert_eq!(returned.email.password, "");
+        assert!(returned.email.password_saved);
+    }
+
+    #[test]
+    fn load_app_settings_migrates_legacy_plaintext_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        conn.execute(
+            "UPDATE settings SET value = ?1 WHERE key = 'app_settings'",
+            [r#"{"email":{"username":"sender@qq.com","password":"legacy-code"}}"#],
+        )
+        .unwrap();
+        let store = credentials::MemoryEmailCredentialStore::default();
+
+        let settings = load_app_settings(&conn, &store).unwrap();
+
+        let stored_json: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'app_settings'", [], |row| row.get(0))
+            .unwrap();
+        assert!(!stored_json.contains("legacy-code"));
+        assert_eq!(store.get_password().unwrap().as_deref(), Some("legacy-code"));
+        assert_eq!(settings.email.password, "");
+        assert!(settings.email.password_saved);
+    }
+
+    #[test]
+    fn save_app_settings_with_empty_password_preserves_existing_credential() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        store.set_password("existing-code").unwrap();
+        let mut settings = AppSettings::default();
+        settings.email.username = "sender@qq.com".to_string();
+        settings.email.password = "".to_string();
+
+        let returned = save_app_settings(&conn, settings, &store).unwrap();
+
+        assert_eq!(store.get_password().unwrap().as_deref(), Some("existing-code"));
+        assert!(returned.email.password_saved);
+    }
+
+    #[test]
+    fn clear_email_password_deletes_credential_and_returns_unsaved_state() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        store.set_password("existing-code").unwrap();
+
+        let returned = clear_email_password_from_store(&conn, &store).unwrap();
+
+        assert_eq!(store.get_password().unwrap(), None);
+        assert!(!returned.email.password_saved);
+        assert_eq!(returned.email.password, "");
+    }
+
+    #[test]
+    fn resolve_email_settings_for_send_injects_stored_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        store.set_password("stored-code").unwrap();
+        let mut settings = AppSettings::default();
+        settings.email.enabled = true;
+        settings.email.username = "sender@qq.com".to_string();
+        settings.email.recipient = "receiver@example.com".to_string();
+        save_app_settings(&conn, settings, &store).unwrap();
+
+        let email = resolve_email_settings_for_send(&conn, &store).unwrap();
+
+        assert_eq!(email.password, "stored-code");
+        assert!(email.password_saved);
+    }
+
+    #[test]
+    fn resolve_email_settings_for_send_reports_missing_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        let mut settings = AppSettings::default();
+        settings.email.enabled = true;
+        save_app_settings(&conn, settings, &store).unwrap();
+
+        let error = resolve_email_settings_for_send(&conn, &store).unwrap_err();
+
+        assert!(error.contains("未保存 SMTP 授权码"));
     }
 
     #[test]
@@ -727,6 +1211,70 @@ mod tests {
 
         assert!(query_notes_in_range(&conn, "2026-02-30", "2026-03-01").is_err());
         assert!(query_notes_in_range(&conn, "2026-07-15", "2026-07-14").is_err());
+    }
+
+    #[test]
+    fn save_note_records_previous_version_once_when_content_changes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+
+        save_note_with_revision(&mut conn, "2026-07-18", "<p>one</p>", "[]").unwrap();
+        save_note_with_revision(&mut conn, "2026-07-18", "<p>two</p>", "[]").unwrap();
+        save_note_with_revision(&mut conn, "2026-07-18", "<p>two</p>", "[]").unwrap();
+
+        let revisions = query_note_revisions(&conn, "2026-07-18").unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].content, "<p>one</p>");
+    }
+
+    #[test]
+    fn save_note_keeps_ten_revisions_per_note() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+
+        for idx in 0..12 {
+            save_note_with_revision(&mut conn, "2026-07-18", &format!("<p>{idx}</p>"), "[]")
+                .unwrap();
+        }
+
+        let revisions = query_note_revisions(&conn, "2026-07-18").unwrap();
+        assert_eq!(revisions.len(), 10);
+        assert_eq!(revisions.last().unwrap().content, "<p>1</p>");
+    }
+
+    #[test]
+    fn automatic_backup_retains_seven_days() {
+        let temp = std::env::temp_dir().join(format!(
+            "daynotes-backup-test-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        for day in 1..=9 {
+            fs::write(temp.join(format!("auto-2026-07-{day:02}.db")), b"x").unwrap();
+        }
+
+        prune_auto_backups(&temp, 7).unwrap();
+
+        let count = fs::read_dir(&temp).unwrap().count();
+        assert_eq!(count, 7);
+        assert!(!temp.join("auto-2026-07-01.db").exists());
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn restore_rejects_invalid_backup_file() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let bad_file = std::env::temp_dir().join(format!(
+            "daynotes-bad-{}.db",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::write(&bad_file, b"not sqlite").unwrap();
+
+        let result = restore_database_from_backup(&mut conn, &bad_file);
+
+        assert!(result.is_err());
+        let _ = fs::remove_file(bad_file);
     }
 
     #[test]

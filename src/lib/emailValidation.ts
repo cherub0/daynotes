@@ -21,7 +21,7 @@ export function validateEmailSettings(settings: EmailSettings): string[] {
     errors.push("请输入有效的收件邮箱地址");
   }
 
-  if (!settings.password.trim()) {
+  if (!settings.password.trim() && !settings.password_saved) {
     errors.push("请输入邮箱服务商生成的 SMTP 授权码");
   }
 

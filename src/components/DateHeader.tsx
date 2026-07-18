@@ -14,6 +14,7 @@ export interface DateHeaderProps {
   onNext: () => void;
   onToday: () => void;
   onSelectDate: (date: string) => void;
+  onHistory: () => void;
   onShare: () => void;
   onSettings: () => void;
   onSendEmail: () => void;
@@ -29,6 +30,7 @@ export function DateHeader({
   onNext,
   onToday,
   onSelectDate,
+  onHistory,
   onShare,
   onSettings,
   onSendEmail,
@@ -58,6 +60,7 @@ export function DateHeader({
             </span>
           )}
           <IconButton label="立即发送今日邮件" onClick={onSendEmail}>✉</IconButton>
+          <IconButton label="历史版本" onClick={onHistory}>↺</IconButton>
           <IconButton label="分享" onClick={onShare}>↗</IconButton>
           <IconButton label="设置" onClick={onSettings}>⚙</IconButton>
         </div>

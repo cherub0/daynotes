@@ -28,6 +28,7 @@ const createProps = (overrides: Partial<DateHeaderProps> = {}): DateHeaderProps 
   onNext: vi.fn(),
   onToday: vi.fn(),
   onSelectDate: vi.fn(),
+  onHistory: vi.fn(),
   onShare: vi.fn(),
   onSettings: vi.fn(),
   onSendEmail: vi.fn(),
@@ -43,6 +44,7 @@ describe("DateHeader", () => {
     expect(screen.getByRole("button", { name: "后一天" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "选择日期" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "立即发送今日邮件" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "历史版本" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "分享" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "设置" })).toBeTruthy();
   });

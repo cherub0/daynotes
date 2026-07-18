@@ -7,12 +7,13 @@ import { Toast } from "./components/Toast";
 import type { ToastTone } from "./components/Toast";
 import { useNoteSession } from "./hooks/useNoteSession";
 import * as api from "./lib/tauri";
-import { getNextDate, getPrevDate, getToday } from "./lib/types";
-import type { AppSettings } from "./lib/types";
+import { getNextDate, getPrevDate, getToday, parseTodos } from "./lib/types";
+import type { AppSettings, Note } from "./lib/types";
 import "./App.css";
 
 const LazyShareModal = createRetryableLazy(() => import("./components/ShareModal"));
 const LazySettingsModal = createRetryableLazy(() => import("./components/SettingsModal"));
+const LazyNoteHistoryModal = createRetryableLazy(() => import("./components/NoteHistoryModal"));
 
 export default function App() {
   const showToastRef = useRef<(message: string, tone?: ToastTone) => void>(() => undefined);
@@ -36,8 +37,10 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [showShare, setShowShare] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [shareRetryKey, setShareRetryKey] = useState(0);
   const [settingsRetryKey, setSettingsRetryKey] = useState(0);
+  const [historyRetryKey, setHistoryRetryKey] = useState(0);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -129,6 +132,12 @@ export default function App() {
       .catch((error) => showToast(`发送失败: ${error}`));
   }
 
+  function handleNoteRestored(note: Note) {
+    setContent(note.content);
+    setTodos(parseTodos(note.todos));
+    showToast("已恢复历史版本");
+  }
+
   return (
     <div className="app-container">
       <DateHeader
@@ -140,6 +149,10 @@ export default function App() {
         onNext={goToNextDay}
         onToday={goToToday}
         onSelectDate={goToDate}
+        onHistory={() => {
+          setHistoryRetryKey((key) => key + 1);
+          setShowHistory(true);
+        }}
         onShare={() => {
           setShareRetryKey((key) => key + 1);
           setShowShare(true);
@@ -192,6 +205,29 @@ export default function App() {
             settings={settings}
             onSave={handleSettingsSave}
             onClose={() => setShowSettings(false)}
+            onDatabaseRestored={() => {
+              void retryLoad();
+              void api.getSettings().then((loadedSettings) => {
+                setSettings(loadedSettings);
+                applyTheme(loadedSettings.theme);
+              });
+              showToast("数据库已恢复");
+            }}
+          />
+        </LazyModalBoundary>
+      )}
+
+      {showHistory && (
+        <LazyModalBoundary
+          onClose={() => setShowHistory(false)}
+          retryKey={historyRetryKey}
+        >
+          <LazyNoteHistoryModal
+            retryKey={historyRetryKey}
+            currentDate={currentDate}
+            onClose={() => setShowHistory(false)}
+            onRestored={handleNoteRestored}
+            onToast={showToast}
           />
         </LazyModalBoundary>
       )}
