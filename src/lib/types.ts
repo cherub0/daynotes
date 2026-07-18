@@ -16,6 +16,20 @@ export interface Note {
   updated_at: string;
 }
 
+export interface NoteRevision {
+  id: number;
+  note_date: string;
+  content: string;
+  todos: string;
+  created_at: string;
+}
+
+export interface BackupStatus {
+  last_auto_backup_at: string | null;
+  last_auto_backup_path: string | null;
+  last_error: string | null;
+}
+
 export interface EmailSettings {
   smtp_host: string;
   smtp_port: number;
