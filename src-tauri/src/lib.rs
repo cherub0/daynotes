@@ -12,6 +12,12 @@ use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
+use credentials::{
+    attach_password_saved_state,
+    migrate_plaintext_password,
+    sanitize_settings_for_storage,
+    EmailCredentialStore,
+};
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -108,6 +114,7 @@ pub struct DbState {
     pub db: Mutex<Connection>,
 }
 
+const APP_SETTINGS_KEY: &str = "app_settings";
 const BACKUP_STATUS_KEY: &str = "backup_status";
 
 fn get_db_path(app_data_dir: &PathBuf) -> PathBuf {
@@ -151,6 +158,71 @@ fn init_db(conn: &Connection) {
 
 pub(crate) fn parse_app_settings(value: &str) -> AppSettings {
     serde_json::from_str::<AppSettings>(value).unwrap_or_default()
+}
+
+fn read_app_settings_json(conn: &Connection) -> Result<String, String> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![APP_SETTINGS_KEY],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+    .map(|value| value.unwrap_or_else(|| "{}".to_string()))
+}
+
+fn write_app_settings_json(conn: &Connection, settings: &AppSettings) -> Result<(), String> {
+    let value = serde_json::to_string(settings).map_err(|error| error.to_string())?;
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![APP_SETTINGS_KEY, value],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn load_app_settings(
+    conn: &Connection,
+    store: &dyn EmailCredentialStore,
+) -> Result<AppSettings, String> {
+    let value = read_app_settings_json(conn)?;
+    let mut settings = parse_app_settings(&value);
+    let migrated = migrate_plaintext_password(&mut settings, store)?;
+    if migrated {
+        let mut stored = settings.clone();
+        sanitize_settings_for_storage(&mut stored);
+        write_app_settings_json(conn, &stored)?;
+    }
+    attach_password_saved_state(&mut settings, store)?;
+    Ok(settings)
+}
+
+fn save_app_settings(
+    conn: &Connection,
+    mut settings: AppSettings,
+    store: &dyn EmailCredentialStore,
+) -> Result<AppSettings, String> {
+    let submitted_password = settings.email.password.trim().to_string();
+    if !submitted_password.is_empty() {
+        store.set_password(&submitted_password)?;
+    }
+
+    sanitize_settings_for_storage(&mut settings);
+    write_app_settings_json(conn, &settings)?;
+    attach_password_saved_state(&mut settings, store)?;
+    Ok(settings)
+}
+
+fn clear_email_password_from_store(
+    conn: &Connection,
+    store: &dyn EmailCredentialStore,
+) -> Result<AppSettings, String> {
+    store.delete_password()?;
+    let mut settings = load_app_settings(conn, store)?;
+    settings.email.password.clear();
+    settings.email.password_saved = false;
+    Ok(settings)
 }
 
 // ── Email Helper ─────────────────────────────────────────────────
@@ -954,6 +1026,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credentials::EmailCredentialStore;
 
     #[test]
     fn parse_app_settings_uses_defaults_for_empty_json() {
@@ -985,6 +1058,78 @@ mod tests {
         assert_eq!(settings.theme, "system");
         assert_eq!(settings.font_size, 14);
         assert!(!settings.email.enabled);
+    }
+
+    #[test]
+    fn save_app_settings_does_not_store_plaintext_email_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        let mut settings = AppSettings::default();
+        settings.email.username = "sender@qq.com".to_string();
+        settings.email.password = "new-code".to_string();
+
+        let returned = save_app_settings(&conn, settings, &store).unwrap();
+
+        let stored_json: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'app_settings'", [], |row| row.get(0))
+            .unwrap();
+        assert!(!stored_json.contains("new-code"));
+        assert_eq!(store.get_password().unwrap().as_deref(), Some("new-code"));
+        assert_eq!(returned.email.password, "");
+        assert!(returned.email.password_saved);
+    }
+
+    #[test]
+    fn load_app_settings_migrates_legacy_plaintext_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        conn.execute(
+            "UPDATE settings SET value = ?1 WHERE key = 'app_settings'",
+            [r#"{"email":{"username":"sender@qq.com","password":"legacy-code"}}"#],
+        )
+        .unwrap();
+        let store = credentials::MemoryEmailCredentialStore::default();
+
+        let settings = load_app_settings(&conn, &store).unwrap();
+
+        let stored_json: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'app_settings'", [], |row| row.get(0))
+            .unwrap();
+        assert!(!stored_json.contains("legacy-code"));
+        assert_eq!(store.get_password().unwrap().as_deref(), Some("legacy-code"));
+        assert_eq!(settings.email.password, "");
+        assert!(settings.email.password_saved);
+    }
+
+    #[test]
+    fn save_app_settings_with_empty_password_preserves_existing_credential() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        store.set_password("existing-code").unwrap();
+        let mut settings = AppSettings::default();
+        settings.email.username = "sender@qq.com".to_string();
+        settings.email.password = "".to_string();
+
+        let returned = save_app_settings(&conn, settings, &store).unwrap();
+
+        assert_eq!(store.get_password().unwrap().as_deref(), Some("existing-code"));
+        assert!(returned.email.password_saved);
+    }
+
+    #[test]
+    fn clear_email_password_deletes_credential_and_returns_unsaved_state() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        store.set_password("existing-code").unwrap();
+
+        let returned = clear_email_password_from_store(&conn, &store).unwrap();
+
+        assert_eq!(store.get_password().unwrap(), None);
+        assert!(!returned.email.password_saved);
+        assert_eq!(returned.email.password, "");
     }
 
     #[test]
