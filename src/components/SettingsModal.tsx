@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AppSettings, BackupStatus, EmailSettings } from "../lib/types";
 import {
+  clearEmailPassword,
   createManualBackup,
   getBackupStatus,
   restoreDatabaseBackup,
@@ -53,6 +54,7 @@ export function SettingsModal({ settings, onSave, onClose, onDatabaseRestored }:
   const [backupMessage, setBackupMessage] = useState("");
   const [restorePath, setRestorePath] = useState("");
   const [isBackupBusy, setIsBackupBusy] = useState(false);
+  const [credentialMessage, setCredentialMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +113,17 @@ export function SettingsModal({ settings, onSave, onClose, onDatabaseRestored }:
     } catch (error) {
       setTestEmailStatus("error");
       setTestEmailMessage(String(error));
+    }
+  }
+
+  async function handleClearEmailPassword() {
+    setCredentialMessage("");
+    try {
+      const nextSettings = await clearEmailPassword();
+      setLocal(nextSettings);
+      setCredentialMessage("授权码已清除，请重新填写后保存");
+    } catch (error) {
+      setCredentialMessage(`清除授权码失败: ${String(error)}`);
     }
   }
 
@@ -220,14 +233,35 @@ export function SettingsModal({ settings, onSave, onClose, onDatabaseRestored }:
         </div>
 
         <div className="form-group">
-          <label htmlFor="settings-email-password">授权码（非邮箱密码，QQ邮箱需在设置中生成）</label>
+          <label htmlFor="settings-email-password">
+            {local.email.password_saved
+              ? "授权码已安全保存，留空保持不变"
+              : "授权码（非邮箱密码，QQ邮箱需在设置中生成）"}
+          </label>
           <input
             id="settings-email-password"
             type="password"
             value={local.email.password}
             onChange={(e) => updateEmail("password", e.target.value)}
-            placeholder="授权码"
+            placeholder={local.email.password_saved ? "留空保持已保存授权码" : "授权码"}
           />
+          {local.email.password_saved && (
+            <div style={{ marginTop: 8 }}>
+              <Button
+                variant="secondary"
+                onClick={() => { void handleClearEmailPassword(); }}
+              >
+                清除已保存授权码
+              </Button>
+            </div>
+          )}
+          {credentialMessage && (
+            <div className="settings-test-status">
+              <StatusBadge status={credentialMessage.includes("失败") ? "error" : "saved"}>
+                {credentialMessage}
+              </StatusBadge>
+            </div>
+          )}
         </div>
 
         <div className="form-group">
