@@ -205,6 +205,14 @@ export default function App() {
             settings={settings}
             onSave={handleSettingsSave}
             onClose={() => setShowSettings(false)}
+            onDatabaseRestored={() => {
+              void retryLoad();
+              void api.getSettings().then((loadedSettings) => {
+                setSettings(loadedSettings);
+                applyTheme(loadedSettings.theme);
+              });
+              showToast("数据库已恢复");
+            }}
           />
         </LazyModalBoundary>
       )}

@@ -7,6 +7,13 @@ import { SettingsModal } from "./SettingsModal";
 
 vi.mock("../lib/tauri", () => ({
   testEmailSettings: vi.fn(),
+  getBackupStatus: vi.fn(async () => ({
+    last_auto_backup_at: "2026-07-18 09:00:00",
+    last_auto_backup_path: "D:\\backup\\auto-2026-07-18.db",
+    last_error: null,
+  })),
+  createManualBackup: vi.fn(async () => "D:\\backup\\manual.db"),
+  restoreDatabaseBackup: vi.fn(async () => undefined),
 }));
 
 const settings: AppSettings = {
@@ -52,5 +59,14 @@ describe("SettingsModal", () => {
     fireEvent.click(darkTheme);
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
     expect(onSave).toHaveBeenCalledWith({ ...settings, theme: "dark" });
+  });
+
+  it("shows data protection controls", async () => {
+    render(<SettingsModal settings={settings} onSave={vi.fn()} onClose={() => undefined} />);
+
+    expect(await screen.findByText("数据保护")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "立即备份" })).not.toBeNull();
+    expect(screen.getByLabelText("备份文件路径")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "恢复整库" })).not.toBeNull();
   });
 });
