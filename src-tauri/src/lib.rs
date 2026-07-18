@@ -225,21 +225,32 @@ fn clear_email_password_from_store(
     Ok(settings)
 }
 
+pub(crate) fn resolve_email_settings_for_send(
+    conn: &Connection,
+    store: &dyn EmailCredentialStore,
+) -> Result<EmailSettings, String> {
+    let settings = load_app_settings(conn, store)?;
+    let mut email = settings.email;
+    let password = store
+        .get_password()?
+        .ok_or_else(|| "未保存 SMTP 授权码，请在设置中重新填写".to_string())?;
+    email.password = password;
+    email.password_saved = true;
+    Ok(email)
+}
+
+pub(crate) fn system_credential_store() -> credentials::SystemEmailCredentialStore {
+    credentials::SystemEmailCredentialStore
+}
+
 // ── Email Helper ─────────────────────────────────────────────────
 
 fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
-    let settings = {
+    let email = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db
-            .prepare("SELECT value FROM settings WHERE key = 'app_settings'")
-            .map_err(|e| e.to_string())?;
-        let value: String = stmt
-            .query_row([], |row| row.get(0))
-            .unwrap_or_else(|_| "{}".to_string());
-        parse_app_settings(&value)
+        resolve_email_settings_for_send(&db, &system_credential_store())?
     };
 
-    let email = &settings.email;
     if !email.enabled {
         return Err("Email sending is not enabled".to_string());
     }
@@ -308,7 +319,7 @@ fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
         if summary.is_empty() { "无笔记内容".to_string() } else { summary }
     );
 
-    send_email_smtp(email, &subject, &body)?;
+    send_email_smtp(&email, &subject, &body)?;
 
     Ok(format!("Email sent to {}", email.recipient))
 }
@@ -689,26 +700,19 @@ fn delete_note(state: tauri::State<DbState>, date: String) -> Result<(), String>
 #[tauri::command]
 fn get_settings(state: tauri::State<DbState>) -> Result<AppSettings, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db
-        .prepare("SELECT value FROM settings WHERE key = 'app_settings'")
-        .map_err(|e| e.to_string())?;
-    let value: String = stmt
-        .query_row([], |row| row.get(0))
-        .unwrap_or_else(|_| "{}".to_string());
-    Ok(parse_app_settings(&value))
+    load_app_settings(&db, &system_credential_store())
 }
 
 #[tauri::command]
 fn save_settings(state: tauri::State<DbState>, settings: AppSettings) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let value = serde_json::to_string(&settings).map_err(|e| e.to_string())?;
-    db.execute(
-        "INSERT INTO settings (key, value) VALUES ('app_settings', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![value],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    save_app_settings(&db, settings, &system_credential_store()).map(|_| ())
+}
+
+#[tauri::command]
+fn clear_email_password(state: tauri::State<DbState>) -> Result<AppSettings, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    clear_email_password_from_store(&db, &system_credential_store())
 }
 
 #[tauri::command]
@@ -799,16 +803,13 @@ fn scheduler_tick(app_handle: &tauri::AppHandle) {
             Err(_) => return,
         };
 
-        // Read settings
-        let mut stmt = match db.prepare("SELECT value FROM settings WHERE key = 'app_settings'") {
-            Ok(s) => s,
-            Err(_) => return,
+        let settings = match load_app_settings(&db, &system_credential_store()) {
+            Ok(settings) => settings,
+            Err(error) => {
+                log::error!("Read email settings failed: {}", error);
+                return;
+            }
         };
-        let value: String = match stmt.query_row([], |row| row.get(0)) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        let settings = parse_app_settings(&value);
 
         let email = &settings.email;
         if !email.enabled {
@@ -1011,6 +1012,7 @@ pub fn run() {
             delete_note,
             get_settings,
             save_settings,
+            clear_email_password,
             send_daily_email,
             write_text_file,
             write_binary_file,
@@ -1130,6 +1132,38 @@ mod tests {
         assert_eq!(store.get_password().unwrap(), None);
         assert!(!returned.email.password_saved);
         assert_eq!(returned.email.password, "");
+    }
+
+    #[test]
+    fn resolve_email_settings_for_send_injects_stored_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        store.set_password("stored-code").unwrap();
+        let mut settings = AppSettings::default();
+        settings.email.enabled = true;
+        settings.email.username = "sender@qq.com".to_string();
+        settings.email.recipient = "receiver@example.com".to_string();
+        save_app_settings(&conn, settings, &store).unwrap();
+
+        let email = resolve_email_settings_for_send(&conn, &store).unwrap();
+
+        assert_eq!(email.password, "stored-code");
+        assert!(email.password_saved);
+    }
+
+    #[test]
+    fn resolve_email_settings_for_send_reports_missing_password() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+        let store = credentials::MemoryEmailCredentialStore::default();
+        let mut settings = AppSettings::default();
+        settings.email.enabled = true;
+        save_app_settings(&conn, settings, &store).unwrap();
+
+        let error = resolve_email_settings_for_send(&conn, &store).unwrap_err();
+
+        assert!(error.contains("未保存 SMTP 授权码"));
     }
 
     #[test]

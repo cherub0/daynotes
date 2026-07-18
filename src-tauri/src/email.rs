@@ -1,4 +1,4 @@
-use crate::{DbState, send_email_smtp};
+use crate::{send_email_smtp, DbState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmailErrorKind {
@@ -30,7 +30,9 @@ pub fn classify_smtp_error(message: &str) -> EmailErrorKind {
 pub fn safe_email_error(kind: EmailErrorKind, raw: &str, secret: &str) -> String {
     let sanitized = raw.replace(secret, "***");
     let hint = match kind {
-        EmailErrorKind::Authentication => "授权码或账号验证失败，请检查邮箱地址和 SMTP 授权码是否正确",
+        EmailErrorKind::Authentication => {
+            "授权码或账号验证失败，请检查邮箱地址和 SMTP 授权码是否正确"
+        }
         EmailErrorKind::Timeout => "连接 SMTP 服务器超时，请检查服务器地址和网络连接",
         EmailErrorKind::Tls => "SSL/TLS 安全连接失败，请检查端口号和加密设置",
         EmailErrorKind::Connection => "无法连接到 SMTP 服务器，请检查服务器地址和端口号",
@@ -55,22 +57,19 @@ pub fn compose_test_email(timestamp: &str) -> (String, String) {
 /// Tauri command: send a test email using current settings to verify SMTP configuration.
 #[tauri::command]
 pub fn test_email_settings(state: tauri::State<DbState>) -> Result<String, String> {
-    let settings = {
-        let db = state.db.lock().map_err(|e| format!("数据库锁定失败：{e}"))?;
-        let mut stmt = db
-            .prepare("SELECT value FROM settings WHERE key = 'app_settings'")
-            .map_err(|e| format!("数据库查询失败：{e}"))?;
-        let value: String = stmt
-            .query_row([], |row| row.get(0))
-            .unwrap_or_else(|_| "{}".to_string());
-        crate::parse_app_settings(&value)
+    let email = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| format!("数据库锁定失败：{e}"))?;
+        crate::resolve_email_settings_for_send(&db, &crate::system_credential_store())
+            .map_err(|e| format!("读取邮件设置失败：{e}"))?
     };
 
-    let email = &settings.email;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let (subject, body) = compose_test_email(&timestamp);
 
-    send_email_smtp(email, &subject, &body)
+    send_email_smtp(&email, &subject, &body)
         .map(|_| format!("测试邮件已发送到 {}", email.recipient))
         .map_err(|raw_error| {
             let kind = classify_smtp_error(&raw_error);

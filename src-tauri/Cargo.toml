@@ -32,3 +32,4 @@ zip = { version = "8.6", default-features = false, features = ["deflate"] }
 image = "0.23"
 lopdf = "0.26"
 printpdf = { version = "0.3", features = ["embedded_images"] }
+keyring = "3.6.3"

@@ -8,6 +8,42 @@ pub trait EmailCredentialStore {
     fn delete_password(&self) -> Result<(), String>;
 }
 
+const SMTP_CREDENTIAL_SERVICE: &str = "com.daynotes.app.smtp";
+const SMTP_CREDENTIAL_ACCOUNT: &str = "smtp_password";
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemEmailCredentialStore;
+
+impl SystemEmailCredentialStore {
+    fn entry(&self) -> Result<keyring::Entry, String> {
+        keyring::Entry::new(SMTP_CREDENTIAL_SERVICE, SMTP_CREDENTIAL_ACCOUNT)
+            .map_err(|error| format!("无法访问系统凭据存储：{error}"))
+    }
+}
+
+impl EmailCredentialStore for SystemEmailCredentialStore {
+    fn get_password(&self) -> Result<Option<String>, String> {
+        match self.entry()?.get_password() {
+            Ok(password) => Ok(Some(password)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!("读取 SMTP 授权码失败：{error}")),
+        }
+    }
+
+    fn set_password(&self, password: &str) -> Result<(), String> {
+        self.entry()?
+            .set_password(password)
+            .map_err(|error| format!("保存 SMTP 授权码失败：{error}"))
+    }
+
+    fn delete_password(&self) -> Result<(), String> {
+        match self.entry()?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("清除 SMTP 授权码失败：{error}")),
+        }
+    }
+}
+
 #[cfg(test)]
 #[derive(Default)]
 pub struct MemoryEmailCredentialStore {
