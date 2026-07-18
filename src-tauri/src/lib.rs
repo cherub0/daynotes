@@ -2,6 +2,7 @@ mod export_zip;
 mod export_pdf;
 mod window_lifecycle;
 mod email;
+mod credentials;
 
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,8 @@ pub struct EmailSettings {
     pub smtp_host: String,
     pub smtp_port: u16,
     pub username: String,
-    pub password: String,       // encrypted in storage
+    pub password: String,
+    pub password_saved: bool,
     pub recipient: String,
     pub send_time: String,      // "HH:MM"
     pub weekdays_only: bool,
@@ -61,6 +63,7 @@ impl Default for EmailSettings {
             smtp_port: 465,
             username: "".to_string(),
             password: "".to_string(),
+            password_saved: false,
             recipient: "".to_string(),
             send_time: "08:00".to_string(),
             weekdays_only: true,
