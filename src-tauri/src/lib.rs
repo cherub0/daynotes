@@ -3,7 +3,7 @@ mod export_pdf;
 mod window_lifecycle;
 mod email;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -21,6 +21,15 @@ pub struct Note {
     pub todos: String,      // JSON array of TodoItem
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteRevision {
+    pub id: i64,
+    pub note_date: String,
+    pub content: String,
+    pub todos: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -107,6 +116,15 @@ fn init_db(conn: &Connection) {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS note_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_date TEXT NOT NULL,
+            content TEXT NOT NULL,
+            todos TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_note_revisions_note_date_created_at
+        ON note_revisions(note_date, created_at DESC, id DESC);
         INSERT OR IGNORE INTO settings (key, value) VALUES ('app_settings', '{}');
         INSERT OR IGNORE INTO settings (key, value) VALUES ('last_sent_date', '');",
     )
@@ -209,45 +227,38 @@ fn send_email_for_date(state: &DbState, date: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn save_note(state: tauri::State<DbState>, date: String, content: String, todos: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.execute(
-        "INSERT INTO notes (date, content, todos, updated_at)
-         VALUES (?1, ?2, ?3, datetime('now', 'localtime'))
-         ON CONFLICT(date) DO UPDATE SET
-           content = excluded.content,
-           todos = excluded.todos,
-           updated_at = datetime('now', 'localtime')",
-        params![date, content, todos],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    save_note_with_revision(&mut db, &date, &content, &todos)
 }
 
 #[tauri::command]
 fn get_note(state: tauri::State<DbState>, date: String) -> Result<Option<Note>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db
-        .prepare("SELECT date, content, todos, created_at, updated_at FROM notes WHERE date = ?1")
-        .map_err(|e| e.to_string())?;
-    let mut rows = stmt.query_map(params![date], |row| {
-        Ok(Note {
-            date: row.get(0)?,
-            content: row.get(1)?,
-            todos: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
-        })
-    })
-    .map_err(|e| e.to_string())?;
-    match rows.next() {
-        Some(Ok(note)) => Ok(Some(note)),
-        _ => Ok(None),
-    }
+    get_note_from_conn(&db, &date)
 }
 
 fn parse_iso_date(value: &str) -> Result<chrono::NaiveDate, String> {
     chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| format!("无效日期：{value}"))
+}
+
+fn get_note_from_conn(conn: &Connection, date: &str) -> Result<Option<Note>, String> {
+    parse_iso_date(date)?;
+    conn.query_row(
+        "SELECT date, content, todos, created_at, updated_at FROM notes WHERE date = ?1",
+        params![date],
+        |row| {
+            Ok(Note {
+                date: row.get(0)?,
+                content: row.get(1)?,
+                todos: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|error| error.to_string())
 }
 
 fn query_notes_in_range(
@@ -285,6 +296,87 @@ fn query_notes_in_range(
         .map_err(|error| error.to_string())
 }
 
+fn query_note_revisions(conn: &Connection, date: &str) -> Result<Vec<NoteRevision>, String> {
+    parse_iso_date(date)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, note_date, content, todos, created_at
+             FROM note_revisions
+             WHERE note_date = ?1
+             ORDER BY created_at DESC, id DESC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![date], |row| {
+            Ok(NoteRevision {
+                id: row.get(0)?,
+                note_date: row.get(1)?,
+                content: row.get(2)?,
+                todos: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+fn save_note_with_revision(
+    conn: &mut Connection,
+    date: &str,
+    content: &str,
+    todos: &str,
+) -> Result<(), String> {
+    parse_iso_date(date)?;
+    serde_json::from_str::<Vec<TodoItem>>(todos)
+        .map_err(|error| format!("无效待办数据：{error}"))?;
+
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    let existing = tx
+        .query_row(
+            "SELECT content, todos FROM notes WHERE date = ?1",
+            params![date],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some((old_content, old_todos)) = existing {
+        if old_content != content || old_todos != todos {
+            tx.execute(
+                "INSERT INTO note_revisions (note_date, content, todos) VALUES (?1, ?2, ?3)",
+                params![date, old_content, old_todos],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.execute(
+                "DELETE FROM note_revisions
+                 WHERE note_date = ?1
+                 AND id NOT IN (
+                   SELECT id FROM note_revisions
+                   WHERE note_date = ?1
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 10
+                 )",
+                params![date],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+
+    tx.execute(
+        "INSERT INTO notes (date, content, todos, updated_at)
+         VALUES (?1, ?2, ?3, datetime('now', 'localtime'))
+         ON CONFLICT(date) DO UPDATE SET
+           content = excluded.content,
+           todos = excluded.todos,
+           updated_at = datetime('now', 'localtime')",
+        params![date, content, todos],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn get_notes_in_range(
     state: tauri::State<DbState>,
@@ -293,6 +385,37 @@ fn get_notes_in_range(
 ) -> Result<Vec<Note>, String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
     query_notes_in_range(&db, &start_date, &end_date)
+}
+
+#[tauri::command]
+fn get_note_revisions(state: tauri::State<DbState>, date: String) -> Result<Vec<NoteRevision>, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    query_note_revisions(&db, &date)
+}
+
+#[tauri::command]
+fn restore_note_revision(state: tauri::State<DbState>, revision_id: i64) -> Result<Note, String> {
+    let mut db = state.db.lock().map_err(|error| error.to_string())?;
+    let revision = db
+        .query_row(
+            "SELECT id, note_date, content, todos, created_at FROM note_revisions WHERE id = ?1",
+            params![revision_id],
+            |row| {
+                Ok(NoteRevision {
+                    id: row.get(0)?,
+                    note_date: row.get(1)?,
+                    content: row.get(2)?,
+                    todos: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "历史版本不存在".to_string())?;
+
+    save_note_with_revision(&mut db, &revision.note_date, &revision.content, &revision.todos)?;
+    get_note_from_conn(&db, &revision.note_date)?.ok_or_else(|| "恢复后未找到便签".to_string())
 }
 
 #[tauri::command]
@@ -630,6 +753,8 @@ pub fn run() {
             save_note,
             get_note,
             get_notes_in_range,
+            get_note_revisions,
+            restore_note_revision,
             get_notes_dates,
             delete_note,
             get_settings,
@@ -727,6 +852,35 @@ mod tests {
 
         assert!(query_notes_in_range(&conn, "2026-02-30", "2026-03-01").is_err());
         assert!(query_notes_in_range(&conn, "2026-07-15", "2026-07-14").is_err());
+    }
+
+    #[test]
+    fn save_note_records_previous_version_once_when_content_changes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+
+        save_note_with_revision(&mut conn, "2026-07-18", "<p>one</p>", "[]").unwrap();
+        save_note_with_revision(&mut conn, "2026-07-18", "<p>two</p>", "[]").unwrap();
+        save_note_with_revision(&mut conn, "2026-07-18", "<p>two</p>", "[]").unwrap();
+
+        let revisions = query_note_revisions(&conn, "2026-07-18").unwrap();
+        assert_eq!(revisions.len(), 1);
+        assert_eq!(revisions[0].content, "<p>one</p>");
+    }
+
+    #[test]
+    fn save_note_keeps_ten_revisions_per_note() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn);
+
+        for idx in 0..12 {
+            save_note_with_revision(&mut conn, "2026-07-18", &format!("<p>{idx}</p>"), "[]")
+                .unwrap();
+        }
+
+        let revisions = query_note_revisions(&conn, "2026-07-18").unwrap();
+        assert_eq!(revisions.len(), 10);
+        assert_eq!(revisions.last().unwrap().content, "<p>1</p>");
     }
 
     #[test]
